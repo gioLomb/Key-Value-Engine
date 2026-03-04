@@ -51,7 +51,7 @@ int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
 
     // 2. RESIZE
     if(table->size + 1 >= table->capacity) {
-        ht_resize(table);
+        if(!ht_resize(table)) return 0;
         index = h % table->capacity; // Ricalcoliamo l'indice con l'hash che abbiamo già
     }
 
@@ -92,11 +92,11 @@ Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
 
 }
 
-void ht_resize(Hash_Table* table){
+int ht_resize(Hash_Table* table){
     size_t oldCapacity = table->capacity;
     table->capacity *= 2;
     Entry **newPool = calloc(table->capacity,sizeof(Entry*));
-    if(!newPool) return;
+    if(!newPool) return 0;
 
     for(unsigned int i = 0;i<oldCapacity;i++){
         Entry *currentOldEntry = table->pool[i];
@@ -112,6 +112,7 @@ void ht_resize(Hash_Table* table){
     }
     free(table->pool);
     table->pool = newPool;
+    return 1;
 }
 
 unsigned long generate_secure_seed() {

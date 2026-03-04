@@ -29,5 +29,5 @@ void print_table(Hash_Table *table);
 int ht_set(Hash_Table *table,char *key,void* value,size_t valueSize);
 
 void* ht_get(Hash_Table *table,char *key);
-void ht_resize(Hash_Table* table);
+int ht_resize(Hash_Table* table);
 unsigned long generate_secure_seed();
