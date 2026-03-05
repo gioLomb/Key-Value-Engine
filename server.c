@@ -6,9 +6,36 @@ int main(){
     printf("EXIT");
     ht_destroy(db);
 }
-void get_query_params(const char *url,...){//TODO
+void get_query_params(const char *url,...){
     va_list args;
     va_start(args,url);
+    char* paramName;
+
+    while((paramName = va_arg(args,char*)) != NULL){
+        char* bufferDest = va_arg(args,char*);
+        char *start = strstr(url,paramName);
+        if(!start){
+            bufferDest[0] = '\0';
+            va_end(args);
+
+            return;
+        }
+
+        //get param value
+        start+=strlen(paramName);
+        char *end = strpbrk(start,"& ");
+        size_t len;
+        if(end){
+            len = (size_t)end-start;
+        }else{
+            //last param specified
+            len =strlen(start);
+        }
+
+        memcpy(bufferDest,start,len);
+        bufferDest[len] = '\0';
+    }
+        va_end(args);
 
 }
 void handle_request(Hash_Table* db,char *buffer){
