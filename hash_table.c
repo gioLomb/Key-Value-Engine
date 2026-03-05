@@ -140,7 +140,7 @@ unsigned long generate_secure_seed() {
 }
 void ht_destroy(Hash_Table *table){
     if (!table) return;
-    for(int i = 0;i<table->capacity;i++){
+    for(size_t i = 0;i<table->capacity;i++){
         Entry *current = table->pool[i];
 
         while(current != NULL){

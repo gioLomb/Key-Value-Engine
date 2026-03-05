@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <stdarg.h>
 #include <netinet/in.h>
 #include "hash_table.h"
 
@@ -13,5 +14,8 @@
 #define BUFFER_SIZE 1024
 
 unsigned long hash_key(const unsigned char *str,unsigned long seed);
+int start_server(int port);
+void server_loop(Hash_Table* db,int server_fd);
+void handle_request(Hash_Table* db,char* buffer);
 
 #endif
