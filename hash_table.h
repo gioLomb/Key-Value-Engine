@@ -1,3 +1,6 @@
+#ifndef HASH_TABLE_H
+#define HASH_TABLE_H
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -24,10 +27,14 @@ typedef struct{
 
 } Hash_Table;
 
+//create a new hash table with its function
 Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction);
+void ht_destroy(Hash_Table *table);
 void print_table(Hash_Table *table);
 int ht_set(Hash_Table *table,char *key,void* value,size_t valueSize);
-
+int ht_delete(Hash_Table *table,char *key);
 void* ht_get(Hash_Table *table,char *key);
 int ht_resize(Hash_Table* table);
 unsigned long generate_secure_seed();
+
+#endif

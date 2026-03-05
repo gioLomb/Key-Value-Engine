@@ -1,22 +1,4 @@
-#include "db.h"
-
-unsigned long hash_key(const unsigned char *str,unsigned long seed) {
-    unsigned long hash = seed;
-    int c;
-    while ((c = *str++))
-        hash = ((hash << 5) + hash) + c; // hash * 33 + c
-    return hash;
-}
-int main(){
-    Hash_Table *db = ht_create(1,hash_key);
-    ht_set(db,"duce",&((int){1}),sizeof(int));
-    ht_set(db,"negro",&((int){3}),sizeof(int));
-    ht_set(db,"frocio",&((int){2}),sizeof(int));
-    printf("%d\n",get(db,"duce",int));
-    printf("%d\n",get(db,"negro",int));
-    printf("%d\n",get(db,"frocio",int));
-
-}
+#include "hash_table.h"
 
 
 void* ht_get(Hash_Table *table,char *key){
@@ -73,6 +55,36 @@ int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
     return 1;
 }
 
+int ht_delete(Hash_Table *table,char *key){
+    if (!table || !key) return 0;
+
+    unsigned int hashed_index = table->hashFunction((unsigned char*)key,table->seed) % table->capacity;
+    Entry *toDelete = table->pool[hashed_index];
+    Entry *prev = NULL;
+    if(!toDelete) return 0;
+
+    while(toDelete != NULL && strcmp(key,toDelete->key) != 0){
+        prev = toDelete;
+        toDelete = toDelete->next;
+    }
+
+    if(!toDelete) return 0; //key not found
+
+    if(!prev){
+        //delete first one
+        table->pool[hashed_index] = toDelete->next;
+    }else{
+        prev->next = toDelete->next;
+    }
+
+    //clean
+    free(toDelete->key);
+    free(toDelete->value);
+    free(toDelete);
+    table->size--;
+    return 1;
+}
+
 Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
     Hash_Table *table = malloc(sizeof(Hash_Table));
     if(table == NULL) return NULL;
@@ -125,4 +137,20 @@ unsigned long generate_secure_seed() {
         seed = (unsigned long)time(NULL); // Fallback se urandom fallisce
     }
     return seed;
+}
+void ht_destroy(Hash_Table *table){
+    if (!table) return;
+    for(int i = 0;i<table->capacity;i++){
+        Entry *current = table->pool[i];
+
+        while(current != NULL){
+            Entry *next = current->next;
+            free(current->key);
+            free(current->value);
+            free(current);
+            current = next;
+        }
+    }
+    free(table->pool);
+    free(table);
 }
