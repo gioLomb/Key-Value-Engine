@@ -16,9 +16,7 @@ void get_query_params(const char *url,...){
         char *start = strstr(url,paramName);
         if(!start){
             bufferDest[0] = '\0';
-            va_end(args);
-
-            return;
+            continue;
         }
 
         //get param value
@@ -26,7 +24,7 @@ void get_query_params(const char *url,...){
         char *end = strpbrk(start,"& ");
         size_t len;
         if(end){
-            len = (size_t)end-start;
+            len = (size_t)(end-start);
         }else{
             //last param specified
             len =strlen(start);
@@ -38,47 +36,62 @@ void get_query_params(const char *url,...){
         va_end(args);
 
 }
-void handle_request(Hash_Table* db,char *buffer){
-    //TODO: improve error handling? , response sendind instead of printf
+void handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     char url[1024] = {0};
     char key[64] = {0};
     char val[64] = {0};
-    char* response;
-    char *firstLine = strtok(buffer,"\n");
+    char *firstLine = strtok(requestBuffer, "\n");
 
-    if(!firstLine) return;
-    extract_url(firstLine,url);
-    
-    if(strncmp(url,"/set",4) == 0){
-        get_query_params(url,"key=",key,"val=",val,NULL);
-        if(key[0] && val[0]){
-            if(ht_set(db,key,val,strlen(val)+1)){
-                printf("200 stored\n");
-            }else{
-                printf("404: error in ht_set\n");
-            }
-        }else{
-            printf("404:Bad params\n");
-        }
-    }else if(strncmp(url,"/get",4) == 0){
-        get_query_params(url,"key=",key,NULL);
-        if(key[0]){
-            if((response = (char*)ht_get(db,key)) != NULL){
-                printf("200: {%s}\n",response);
-            }else{
-                printf("404: value not found\n");
-            }
-        }else{
-            printf("404:Bad params\n");
-        }
-    }else if(strncmp(url,"/delete",7) == 0){
-
-    }else{
-        printf("403: route not exists\n");
+    if(!firstLine) {
+        snprintf(responseBuffer, BUFFER_SIZE, "400 Bad Request\n");
+        return;
     }
-
-
-
+    
+    extract_url(firstLine, url);
+    
+    // set route
+    if(strncmp(url, "/set", 4) == 0) {
+        get_query_params(url, "key=", key, "val=", val, NULL);
+        if(key[0] && val[0]) {
+            if(ht_set(db, key, val, strlen(val) + 1)) {
+                snprintf(responseBuffer, BUFFER_SIZE, "200 OK: stored\n");
+            } else {
+                snprintf(responseBuffer, BUFFER_SIZE, "500 Internal Error: ht_set failed\n");
+            }
+        } else {
+            snprintf(responseBuffer, BUFFER_SIZE, "400 Bad Request: missing params\n");
+        }
+    } 
+    // get route
+    else if(strncmp(url, "/get", 4) == 0) {
+        char* responseFromDb;
+        get_query_params(url, "key=", key, NULL);
+        if(key[0]) {
+            if((responseFromDb = (char*)ht_get(db, key)) != NULL) {
+                snprintf(responseBuffer, BUFFER_SIZE, "200 OK: {%s}\n", responseFromDb);
+            } else {
+                snprintf(responseBuffer, BUFFER_SIZE, "404 Not Found: key not exists\n");
+            }
+        } else {
+            snprintf(responseBuffer, BUFFER_SIZE, "400 Bad Request: missing key\n");
+        }
+    } 
+    // delete route
+    else if(strncmp(url, "/delete", 7) == 0) {
+        get_query_params(url, "key=", key, NULL);
+        if(key[0]) {
+            if(ht_delete(db, key)) {
+                snprintf(responseBuffer, BUFFER_SIZE, "200 OK: value deleted\n");
+            } else {
+                snprintf(responseBuffer, BUFFER_SIZE, "404 Not Found: key not exists\n");
+            }
+        } else {
+            snprintf(responseBuffer, BUFFER_SIZE, "400 Bad Request: missing key\n");
+        }
+    } 
+    else {
+        snprintf(responseBuffer, BUFFER_SIZE, "404 Not Found: route does not exist\n");
+    }
 }
 void extract_url(char *firstLineRequest,char *dest){
     dest[0] = '\0';
@@ -88,24 +101,25 @@ void extract_url(char *firstLineRequest,char *dest){
     char *end = strchr(start,' ');
     if(!end) return;
 
-    memcpy(dest,start,(size_t)end-start);
-    dest[(size_t)end-start] = '\0';
+    memcpy(dest,start,(size_t)(end-start));
+    dest[(size_t)(end-start)] = '\0';
 }
 void server_loop(Hash_Table* db,int server_fd){
     int newSocketFd;
-    char buffer[BUFFER_SIZE] = {0};
+    char requestBuffer[BUFFER_SIZE] = {0};
+    char responseBuffer[BUFFER_SIZE] = {0};
     struct sockaddr_in clientAddress;
     int addrLen = sizeof(clientAddress);
-    while(getc(stdin) != 'F') {
+    while(1) {
         // accept clients
         if ((newSocketFd = accept(server_fd, (struct sockaddr *)&clientAddress, (socklen_t*)&addrLen )) < 0) {
             perror("connection failed");
             continue;
         }
 
-        read(newSocketFd, buffer, BUFFER_SIZE);
+        read(newSocketFd, requestBuffer, BUFFER_SIZE);
         printf("request received\n");
-        handle_request(db,buffer);
+        handle_request(db,requestBuffer,responseBuffer);
 
         close(newSocketFd);
     }

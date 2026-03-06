@@ -16,6 +16,8 @@
 unsigned long hash_key(const unsigned char *str,unsigned long seed);
 int start_server(int port);
 void server_loop(Hash_Table* db,int server_fd);
-void handle_request(Hash_Table* db,char* buffer);
+void handle_request(Hash_Table* db,char* requestBuffer,char *responseBuffer);
+void extract_url(char *firstLineRequest,char *dest);
+void get_query_params(const char *url,...);
 
 #endif
