@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=gnu11
 TARGET = server
 
-SRC = server.c hash_table.c
+SRC = server_functions.c request_handling.c hash_table.c
 OBJ = $(SRC:.c=.o)
 
 # .PHONY serve a dire a make che questi non sono file fisici
@@ -16,9 +16,11 @@ all: $(TARGET)
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
 
-server.o: server.c hash_table.h
-	$(CC) $(CFLAGS) -c server.c
+server.o: server_functions.c hash_table.h
+	$(CC) $(CFLAGS) -c server_functions.c
 
+request_handling.o: request_handling.c request_handling.h
+	$(CC) $(CFLAGS) -c request_handling.c
 hash_table.o: hash_table.c hash_table.h
 	$(CC) $(CFLAGS) -c hash_table.c
 

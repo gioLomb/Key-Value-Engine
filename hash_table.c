@@ -138,19 +138,55 @@ unsigned long generate_secure_seed() {
     }
     return seed;
 }
-void ht_destroy(Hash_Table *table){
+void ht_destroy(Hash_Table *table,const char* persistenceFilePath){
     if (!table) return;
+    FILE *ptrFile=NULL;
+    if(persistenceFilePath != NULL){
+        ptrFile = fopen(persistenceFilePath,"wb");
+        if(!ptrFile) perror("Impossible to open the file specified as persistenceFilePath parameter\n");
+    }
     for(size_t i = 0;i<table->capacity;i++){
         Entry *current = table->pool[i];
 
         while(current != NULL){
             Entry *next = current->next;
+            if(ptrFile) save_data_on_file(current,ptrFile);
             free(current->key);
             free(current->value);
             free(current);
             current = next;
         }
     }
+    if(ptrFile) fclose(ptrFile);
     free(table->pool);
     free(table);
+}
+
+void save_data_on_file(Entry* entryToSave, FILE *f) {
+    size_t key_len = strlen(entryToSave->key) + 1; 
+    fwrite(&key_len, sizeof(size_t), 1, f);
+    fwrite(entryToSave->key, key_len, 1, f);
+    fwrite(&entryToSave->size, sizeof(size_t), 1, f);
+    fwrite(entryToSave->value, entryToSave->size, 1, f);
+}
+
+int ht_load(Hash_Table *table,const char* persistenceFilePath){
+    FILE *ptrFile = fopen(persistenceFilePath,"rb");
+    if(!ptrFile) return 0;  //start from empty table
+
+    size_t keyLen,valueSize;
+    while(fread(&keyLen,sizeof(size_t),1,ptrFile) == 1){
+        char *key = malloc(keyLen);
+        fread(key,keyLen,1,ptrFile);
+        fread(&valueSize,sizeof(size_t),1,ptrFile);
+        void *value = malloc(valueSize);
+        fread(value,valueSize,1,ptrFile);
+
+        ht_set(table,key,value,valueSize);
+
+        free(key);
+        free(value);
+    }
+    fclose(ptrFile);
+    return 1;
 }
