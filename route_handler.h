@@ -9,16 +9,15 @@
 #include <stdarg.h>
 #include <netinet/in.h>
 #include "hash_table.h"
-#include "server_functions.h"
-
+#include "config.h"
 
 typedef struct Route{
     char *path;
-    int (*handler)(Hash_Table* table, const char* url, char* responseBuffer);
+    int (*handler)(Hash_Table* table, const char* url, char* responseBuffer, pthread_rwlock_t *rwlock);
 } Route;
 
 //parse the requests and verify the url route filling the response buffer with a specific message.
 //It returns the status code.
-int handle_request(Hash_Table* db,char* requestBuffer,char *responseBuffer);
+int handle_request(Hash_Table* db,char* requestBuffer,char *responseBuffer, pthread_rwlock_t *rwlock);
 
 #endif

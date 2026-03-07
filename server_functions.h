@@ -11,14 +11,15 @@
 #include <signal.h>
 #include "hash_table.h"
 #include "route_handler.h"
-
-#define PORT 8080
-#define BUFFER_SIZE (1<<10)
-#define URL_BUFFER_SIZE (1<<10)
-#define PARAM_KEY_SIZE (1<<8)
-#define PARAM_VALUE_SIZE BUFFER_SIZE
+#include "config.h"
 
 extern volatile sig_atomic_t keep_running;
+
+typedef struct {
+    int socketFd;
+    Hash_Table *db;
+    pthread_rwlock_t *rwlock;
+} ClientContext;
 
 unsigned long hash_key(const unsigned char *str,unsigned long seed);
 

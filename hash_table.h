@@ -10,6 +10,7 @@
 #define MAX_KEY_LEN (1<<12)
 #define MAX_VALUE_SIZE (1<<20)
 #define get(table, key, T) (*(T*)ht_get(table, key))
+
 typedef unsigned long (*hash_func)(const unsigned char *, unsigned long);
 
 typedef struct Entry {
