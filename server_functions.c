@@ -23,6 +23,7 @@ void config_signal_context(){
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
 }
+
 void handle_sigint(int sig) {
     printf("ctrl+c\n");
     keep_running = 0;

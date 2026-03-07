@@ -15,10 +15,10 @@
 //It returns the status code
 int handle_request(Hash_Table* db,char* requestBuffer,char *responseBuffer);
 
-//extract the url from the request body; it fills the dest buffer with url
-void extract_url(char *firstLineRequest,char *dest);
+//extract the url from the request body; it fills the dest buffer with valid url
+void extract_url(char *firstLineRequest,char *dest,size_t maxLen);
 
-//extract the query params. It checks the params name and write their value in the specified buffer
-void get_query_params(const char *url,...);
+//extract value of specified param name if valid.
+void get_query_param(const char *url,const char* paramName,char* destBuffer,size_t maxLen);
 
 #endif

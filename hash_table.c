@@ -176,9 +176,17 @@ int ht_load(Hash_Table *table,const char* persistenceFilePath){
 
     size_t keyLen,valueSize;
     while(fread(&keyLen,sizeof(size_t),1,ptrFile) == 1){
+        if(keyLen> 4096){
+            fclose(ptrFile);
+            return 0;
+        }
         char *key = malloc(keyLen);
         fread(key,keyLen,1,ptrFile);
-        fread(&valueSize,sizeof(size_t),1,ptrFile);
+        if (fread(&valueSize, sizeof(size_t), 1, ptrFile) != 1 || valueSize > 1000000) { // Max 1MB
+            free(key);
+            fclose(ptrFile);
+            return 0;
+        }
         void *value = malloc(valueSize);
         fread(value,valueSize,1,ptrFile);
 
