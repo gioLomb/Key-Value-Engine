@@ -171,30 +171,42 @@ void save_data_on_file(Entry* entryToSave, FILE *f) {
 }
 
 int ht_load(Hash_Table *table,const char* persistenceFilePath){
+    if(persistenceFilePath == NULL) return 0;
     FILE *ptrFile = fopen(persistenceFilePath,"rb");
     if(!ptrFile) return 0;  //start from empty table
 
     size_t keyLen,valueSize;
+    char *key = NULL;
+    void* value = NULL;
+    //read data
     while(fread(&keyLen,sizeof(size_t),1,ptrFile) == 1){
-        if(keyLen> 4096){
-            fclose(ptrFile);
-            return 0;
-        }
-        char *key = malloc(keyLen);
-        fread(key,keyLen,1,ptrFile);
-        if (fread(&valueSize, sizeof(size_t), 1, ptrFile) != 1 || valueSize > 1000000) { // Max 1MB
-            free(key);
-            fclose(ptrFile);
-            return 0;
-        }
-        void *value = malloc(valueSize);
-        fread(value,valueSize,1,ptrFile);
 
+        //read and check key 
+        if(keyLen> MAX_KEY_LEN || keyLen == 0) goto error;
+        key = malloc(keyLen);
+        if(!key) goto error;
+        if(fread(key,keyLen,1,ptrFile) != 1) goto error;
+
+        //read and check value
+        if (fread(&valueSize, sizeof(size_t), 1, ptrFile) != 1 || valueSize > MAX_VALUE_SIZE) goto error;
+        value = malloc(valueSize);
+        if(!value) goto error;
+        if(fread(value,valueSize,1,ptrFile)!=1) goto error;
+
+        //load data
         ht_set(table,key,value,valueSize);
 
-        free(key);
-        free(value);
+        //cleanup
+        free(key); key = NULL;
+        free(value); value=NULL;
     }
     fclose(ptrFile);
     return 1;
+
+    error:
+        fprintf(stderr,"File corrupted or unreadable\n");
+        free(key);
+        free(value);
+        fclose(ptrFile);
+        return 0;
 }

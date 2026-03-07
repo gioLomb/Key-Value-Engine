@@ -18,8 +18,8 @@ void get_query_param(const char *url,const char* paramName,char* bufferDest,size
 int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     //TODO: sanitize key and val
     char url[URL_BUFFER_SIZE] = {0};
-    char key[PARAM_BUFFER_SIZE] = {0}; 
-    char val[PARAM_BUFFER_SIZE] = {0};
+    char key[PARAM_KEY_SIZE] = {0}; 
+    char val[PARAM_VALUE_SIZE] = {0};
     char *firstLine = strtok(requestBuffer, "\n");
 
     if(!firstLine) {
@@ -31,8 +31,8 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     
     // set route
     if(strncmp(url, "/set", 4) == 0) {
-        get_query_param(url, "key=", key, PARAM_BUFFER_SIZE);
-        get_query_param(url, "val=", val, PARAM_BUFFER_SIZE);
+        get_query_param(url, "key=", key, PARAM_KEY_SIZE);
+        get_query_param(url, "val=", val, PARAM_VALUE_SIZE);
         if(key[0] && val[0]) {
             if(ht_set(db, key, val, strlen(val) + 1)) {
                 snprintf(responseBuffer, BUFFER_SIZE, "stored\n");
@@ -49,7 +49,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     // get route
     else if(strncmp(url, "/get", 4) == 0) {
         char* responseFromDb;
-        get_query_param(url, "key=", key, PARAM_BUFFER_SIZE);
+        get_query_param(url, "key=", key, PARAM_KEY_SIZE);
         if(key[0]) {
             if((responseFromDb = (char*)ht_get(db, key)) != NULL) {
                 snprintf(responseBuffer, BUFFER_SIZE, "{%s}\n", responseFromDb);
@@ -65,7 +65,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     } 
     // delete route
     else if(strncmp(url, "/delete", 7) == 0) {
-        get_query_param(url, "key=", key, PARAM_BUFFER_SIZE);
+        get_query_param(url, "key=", key, PARAM_KEY_SIZE);
         if(key[0]) {
             if(ht_delete(db, key)) {
                 snprintf(responseBuffer, BUFFER_SIZE, "value deleted\n");

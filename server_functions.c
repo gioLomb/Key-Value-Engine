@@ -49,7 +49,8 @@ void server_loop(Hash_Table* db,int server_fd){
         memset(requestBuffer, 0, BUFFER_SIZE);
         memset(responseBuffer, 0, BUFFER_SIZE);
 
-        read(newSocketFd, requestBuffer, BUFFER_SIZE);
+        size_t nBytes = read(newSocketFd, requestBuffer, BUFFER_SIZE-1);
+        if(nBytes>0) requestBuffer[nBytes] = '\0';
         printf("request received\n");
         int statusCode = handle_request(db,requestBuffer,responseBuffer);
         send_response(newSocketFd,statusCode,responseBuffer);
@@ -71,8 +72,7 @@ void send_response(int socketFd,int statusCode,char* responseMsg){
         default:
             statusMsg="Internal Server Error"; break;
     }
-
-    int len = sprintf(fullResponseBuffer, 
+    int len = snprintf(fullResponseBuffer, sizeof(fullResponseBuffer),
         "HTTP/1.1 %d %s\r\n" 
         "Content-Type: text/plain\r\n"
         "Content-Length: %zu\r\n"

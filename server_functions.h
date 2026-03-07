@@ -13,9 +13,10 @@
 #include "request_handling.h"
 
 #define PORT 8080
-#define BUFFER_SIZE 1024
-#define PARAM_BUFFER_SIZE 64
-#define URL_BUFFER_SIZE 1024
+#define BUFFER_SIZE 1<<10
+#define URL_BUFFER_SIZE 1<<10
+#define PARAM_KEY_SIZE 1<<8
+#define PARAM_VALUE_SIZE BUFFER_SIZE
 
 extern volatile sig_atomic_t keep_running;
 
