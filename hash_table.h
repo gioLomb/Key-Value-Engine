@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 
 #define MAX_KEY_LEN (1<<12)
 #define MAX_VALUE_SIZE (1<<20)
@@ -27,7 +28,7 @@ typedef struct{
     size_t capacity;
     unsigned long seed;
     hash_func hashFunction;
-
+    pthread_rwlock_t lock;
 } Hash_Table;
 
 //create a new hash table with its hash function and returns it
@@ -42,8 +43,8 @@ int ht_set(Hash_Table *table,char *key,void* value,size_t valueSize);
 //delete a value based on the key. It returns the error code
 int ht_delete(Hash_Table *table,char *key);
 
-//get the value from a table based on the key.It returns the value
-void* ht_get(Hash_Table *table,char *key);
+//get the value from a table based on the key.It returns the error code
+int ht_get(Hash_Table *table,char *key,void *destBuffer,size_t destSize);
 
 //resize the table capacity.It returns the error code
 int ht_resize(Hash_Table* table);

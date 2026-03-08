@@ -1,19 +1,27 @@
 #include "hash_table.h"
 
 
-void* ht_get(Hash_Table *table,char *key){
+int ht_get(Hash_Table *table,char *key,void *destBuffer,size_t destSize){
+    pthread_rwlock_rdlock(&table->lock); //block only writers (set or delete)
     unsigned int hashedKey = table->hashFunction((unsigned char*)key,table->seed) % table->capacity;
     Entry *current = table->pool[hashedKey];
     
     while(current != NULL){
         if(strcmp(current->key,key) == 0){
-            return current->value;
+            //success: fill the buffer with value
+            size_t sizeToCopy = (current->size < destSize) ? current->size : destSize;
+            memcpy(destBuffer,current->value,sizeToCopy);
+            pthread_rwlock_unlock(&table->lock);
+            return 1;
         }
         current = current->next;
     }
-    return NULL;
+
+    pthread_rwlock_unlock(&table->lock);
+    return 0;
 }
 int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
+    pthread_rwlock_wrlock(&table->lock);
     unsigned long h = table->hashFunction((unsigned char*)key,table->seed); 
     unsigned int index = h % table->capacity;
     Entry *current = table->pool[index];
@@ -23,26 +31,26 @@ int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
         if(strcmp(current->key, key) == 0) {
             free(current->value);
             current->value = malloc(valueSize);
-            if(current->value == NULL) return 0;
+            if(current->value == NULL) goto error;
             memcpy(current->value, value, valueSize);
             current->size = valueSize;
-            return 1;
+            goto success;
         }
         current = current->next;
     }
 
     // 2. RESIZE
     if(table->size + 1 >= table->capacity) {
-        if(!ht_resize(table)) return 0;
+        if(!ht_resize(table)) goto error;
         index = h % table->capacity; // Ricalcoliamo l'indice con l'hash che abbiamo già
     }
 
     
     Entry *newEntry = malloc(sizeof(Entry));
-    if(newEntry == NULL) return 0;
+    if(newEntry == NULL) goto error;
 
     newEntry->value = malloc(valueSize);
-    if(newEntry->value == NULL) { free(newEntry); return 0; }
+    if(newEntry->value == NULL) { free(newEntry); goto error; }
 
     memcpy(newEntry->value, value, valueSize);
     newEntry->hash = h;
@@ -52,23 +60,31 @@ int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
     table->pool[index] = newEntry;
 
     table->size++;
-    return 1;
+    
+    success:
+        pthread_rwlock_unlock(&table->lock);
+        return 1;
+    
+    error:
+        pthread_rwlock_unlock(&table->lock);
+        return 0;
 }
 
 int ht_delete(Hash_Table *table,char *key){
-    if (!table || !key) return 0;
+    pthread_rwlock_wrlock(&table->lock);
+    if (!table || !key) goto error; //Bad args
 
     unsigned int hashed_index = table->hashFunction((unsigned char*)key,table->seed) % table->capacity;
     Entry *toDelete = table->pool[hashed_index];
     Entry *prev = NULL;
-    if(!toDelete) return 0;
+    if(!toDelete) goto error;
 
     while(toDelete != NULL && strcmp(key,toDelete->key) != 0){
         prev = toDelete;
         toDelete = toDelete->next;
     }
 
-    if(!toDelete) return 0; //key not found
+    if(!toDelete) goto error; //key not found
 
     if(!prev){
         //delete first one
@@ -82,7 +98,14 @@ int ht_delete(Hash_Table *table,char *key){
     free(toDelete->value);
     free(toDelete);
     table->size--;
-    return 1;
+
+    success:
+        pthread_rwlock_unlock(&table->lock);
+        return 1;
+    
+    error:
+        pthread_rwlock_unlock(&table->lock);
+        return 0;
 }
 
 Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
@@ -100,6 +123,7 @@ Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
     }
     table->seed = generate_secure_seed();
     table->hashFunction = hashFunction;
+    pthread_rwlock_init(&(table->lock),NULL);
     return table;
 
 }
@@ -160,6 +184,7 @@ void ht_destroy(Hash_Table *table,const char* persistenceFilePath){
     if(ptrFile) fclose(ptrFile);
     free(table->pool);
     free(table);
+    pthread_rwlock_destroy(&table->lock);
 }
 
 void save_data_on_file(Entry* entryToSave, FILE *f) {

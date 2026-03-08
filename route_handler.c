@@ -9,9 +9,9 @@ static void extract_url(char *firstLineRequest,char *dest,size_t maxLen);
 static void get_query_param(const char *url,const char* paramName,char* destBuffer,size_t maxLen);
 
 //wrapper functions for hash table interfaces
-static int handler_get(Hash_Table *table, const char *url, char *responseBuffer, pthread_rwlock_t *rwlock);
-static int handler_set(Hash_Table *table, const char *url, char *responseBuffer, pthread_rwlock_t *rwlock);
-static int handler_delete(Hash_Table *table, const char *url, char *responseBuffer, pthread_rwlock_t *rwlock);
+static int handler_get(Hash_Table *table, const char *url, char *responseBuffer);
+static int handler_set(Hash_Table *table, const char *url, char *responseBuffer);
+static int handler_delete(Hash_Table *table, const char *url, char *responseBuffer);
 
 //ROUTES
 static Route routes[]={
@@ -22,7 +22,7 @@ static Route routes[]={
 
 /*DEFINITIONS*/
 
-int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer, pthread_rwlock_t *rwlock) {
+int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     char url[URL_BUFFER_SIZE] = {0};
     char *firstLine = strtok(requestBuffer, "\n");
 
@@ -35,7 +35,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer, pt
     //lookup routing
     for(int i = 0;i<sizeof(routes)/sizeof(routes[0]);i++){
         if(strncmp(url,routes[i].path,strlen(routes[i].path))== 0){
-            return routes[i].handler(db,url,responseBuffer,rwlock);
+            return routes[i].handler(db,url,responseBuffer);
         }
     }
     
@@ -44,29 +44,32 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer, pt
     return 404;
 }
 
-int handler_get(Hash_Table* table, const char* url, char* responseBuffer, pthread_rwlock_t *rwlock){
+int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
-    char* responseFromDb;
+    char *value = calloc(1, PARAM_VALUE_SIZE);
+    if (!value) return 500;
+
     get_query_param(url, "key=", key, PARAM_KEY_SIZE);
     if(key[0]) {
-        pthread_rwlock_rdlock(rwlock);
-        responseFromDb = (char*)ht_get(table, key);
-        pthread_rwlock_unlock(rwlock);
-
-        if(responseFromDb != NULL) {
-            snprintf(responseBuffer, BUFFER_SIZE, "{%s}\n", responseFromDb);
+        
+        if(ht_get(table, key,value,PARAM_VALUE_SIZE)) {
+            snprintf(responseBuffer, BUFFER_SIZE, "{%s}\n", value);
+            free(value);
             return 200;
         } else {
             snprintf(responseBuffer, BUFFER_SIZE, "key not exists\n");
+            free(value);
             return 404;
         }
+
     } else {
         snprintf(responseBuffer, BUFFER_SIZE, "missing key\n");
+        free(value);
         return 400;
     }
 }
 
-int handler_set(Hash_Table* table, const char* url, char* responseBuffer, pthread_rwlock_t *rwlock){
+int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
     char val[PARAM_VALUE_SIZE] = {0};
 
@@ -74,11 +77,8 @@ int handler_set(Hash_Table* table, const char* url, char* responseBuffer, pthrea
     get_query_param(url, "val=", val, PARAM_VALUE_SIZE);
 
     if(key[0] && val[0]) {
-        pthread_rwlock_wrlock(rwlock);
-        int isSet = ht_set(table, key, val, strlen(val) + 1);
-        pthread_rwlock_unlock(rwlock);
 
-        if(isSet) {
+        if(ht_set(table, key, val, strlen(val) + 1)) {
             snprintf(responseBuffer, BUFFER_SIZE, "stored\n");
             return 200;
         } else {
@@ -93,17 +93,14 @@ int handler_set(Hash_Table* table, const char* url, char* responseBuffer, pthrea
 
 }
 
-int handler_delete(Hash_Table* table, const char* url, char* responseBuffer, pthread_rwlock_t *rwlock){
+int handler_delete(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
 
     get_query_param(url, "key=", key, PARAM_KEY_SIZE);
 
     if(key[0]) {
-        pthread_rwlock_wrlock(rwlock);
-        int isDeleted = ht_delete(table, key);
-        pthread_rwlock_unlock(rwlock);
 
-        if(isDeleted) {
+        if(ht_delete(table, key)) {
             snprintf(responseBuffer, BUFFER_SIZE, "value deleted\n");
             return 200;
         } else {

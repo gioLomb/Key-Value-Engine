@@ -49,7 +49,6 @@ void server_loop(Hash_Table* db,int server_fd){
     int newSocketFd;
     struct sockaddr_in clientAddress;
     int addrLen = sizeof(clientAddress);
-    pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
     while(keep_running) {
         // accept clients
@@ -65,8 +64,7 @@ void server_loop(Hash_Table* db,int server_fd){
         ClientContext *ctx = malloc(sizeof(ClientContext));
         if(!ctx) { close(newSocketFd); continue; }
         ctx->socketFd = newSocketFd;
-        ctx->db       = db;
-        ctx->rwlock   = &rwlock;
+        ctx->db = db;
 
         //new thread for client
         pthread_t thread;
@@ -78,7 +76,6 @@ void server_loop(Hash_Table* db,int server_fd){
         }
         pthread_detach(thread);
     }
-    pthread_rwlock_destroy(&rwlock);
 }
 
 void send_response(int socketFd,int statusCode,char* responseMsg){

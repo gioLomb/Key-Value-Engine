@@ -18,7 +18,6 @@ extern volatile sig_atomic_t keep_running;
 typedef struct {
     int socketFd;
     Hash_Table *db;
-    pthread_rwlock_t *rwlock;
 } ClientContext;
 
 unsigned long hash_key(const unsigned char *str,unsigned long seed);

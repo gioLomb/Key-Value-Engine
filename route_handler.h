@@ -13,11 +13,11 @@
 
 typedef struct Route{
     char *path;
-    int (*handler)(Hash_Table* table, const char* url, char* responseBuffer, pthread_rwlock_t *rwlock);
+    int (*handler)(Hash_Table* table, const char* url, char* responseBuffer);
 } Route;
 
 //parse the requests and verify the url route filling the response buffer with a specific message.
 //It returns the status code.
-int handle_request(Hash_Table* db,char* requestBuffer,char *responseBuffer, pthread_rwlock_t *rwlock);
+int handle_request(Hash_Table* db,char* requestBuffer,char *responseBuffer);
 
 #endif
