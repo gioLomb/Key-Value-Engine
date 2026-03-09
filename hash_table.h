@@ -34,7 +34,7 @@ typedef struct{
 //create a new hash table with its hash function and returns it
 Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction);
 
-//clean table references
+//save (if file is available) and clean the Entry of the table
 void ht_destroy(Hash_Table *table,const char* persistenceFilePath);
 
 //set (create or modify) a value based on the key.It returns the error code
@@ -52,7 +52,7 @@ int ht_resize(Hash_Table* table);
 //load an existing table from a file.If it returns 0 the table starts as empty
 int ht_load(Hash_Table *table,const char* persistenceFilePath);
 
-//write entry in the file
+//write Entry in the file
 void save_data_on_file(Entry* entryToSave, FILE *f);
 
 //generate new seed to use for the hash function

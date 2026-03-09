@@ -48,25 +48,26 @@ int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
     char *value = calloc(1, PARAM_VALUE_SIZE);
     if (!value) return 500;
-
+    int statusCode;
+    
     get_query_param(url, "key=", key, PARAM_KEY_SIZE);
     if(key[0]) {
         
         if(ht_get(table, key,value,PARAM_VALUE_SIZE)) {
             snprintf(responseBuffer, BUFFER_SIZE, "{%s}\n", value);
-            free(value);
-            return 200;
+            statusCode = 200;
         } else {
             snprintf(responseBuffer, BUFFER_SIZE, "key not exists\n");
-            free(value);
-            return 404;
+            statusCode = 404;
         }
 
     } else {
         snprintf(responseBuffer, BUFFER_SIZE, "missing key\n");
-        free(value);
-        return 400;
+        statusCode = 400;;
     }
+
+    free(value);
+    return statusCode;
 }
 
 int handler_set(Hash_Table* table, const char* url, char* responseBuffer){

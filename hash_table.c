@@ -26,7 +26,7 @@ int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
     unsigned int index = h % table->capacity;
     Entry *current = table->pool[index];
 
-    // Ricerca per UPDATE
+    //find Entry to modify it; if current is NULL means a new Entry must be created 
     while(current != NULL) {
         if(strcmp(current->key, key) == 0) {
             free(current->value);
@@ -39,23 +39,24 @@ int ht_set(Hash_Table *table, char *key, void* value, size_t valueSize) {
         current = current->next;
     }
 
-    // 2. RESIZE
+    //check for resizing
     if(table->size + 1 >= table->capacity) {
         if(!ht_resize(table)) goto error;
-        index = h % table->capacity; // Ricalcoliamo l'indice con l'hash che abbiamo già
+        index = h % table->capacity; // compute index again
     }
 
-    
+    //create new Entry
     Entry *newEntry = malloc(sizeof(Entry));
     if(newEntry == NULL) goto error;
 
     newEntry->value = malloc(valueSize);
     if(newEntry->value == NULL) { free(newEntry); goto error; }
-
     memcpy(newEntry->value, value, valueSize);
+
     newEntry->hash = h;
     newEntry->key = strdup(key);
     newEntry->size = valueSize;
+    //add on head
     newEntry->next = table->pool[index];
     table->pool[index] = newEntry;
 
@@ -78,7 +79,8 @@ int ht_delete(Hash_Table *table,char *key){
     Entry *toDelete = table->pool[hashed_index];
     Entry *prev = NULL;
     if(!toDelete) goto error;
-
+    
+    //find entry to delete
     while(toDelete != NULL && strcmp(key,toDelete->key) != 0){
         prev = toDelete;
         toDelete = toDelete->next;
@@ -130,10 +132,13 @@ Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
 
 int ht_resize(Hash_Table* table){
     size_t oldCapacity = table->capacity;
+    
+    //update capacity and pool
     table->capacity *= 2;
     Entry **newPool = calloc(table->capacity,sizeof(Entry*));
     if(!newPool) return 0;
 
+    //copy old pool's entry in the newly allocated pool 
     for(unsigned int i = 0;i<oldCapacity;i++){
         Entry *currentOldEntry = table->pool[i];
         while(currentOldEntry != NULL){
@@ -158,7 +163,7 @@ unsigned long generate_secure_seed() {
         fread(&seed, sizeof(seed), 1, f);
         fclose(f);
     } else {
-        seed = (unsigned long)time(NULL); // Fallback se urandom fallisce
+        seed = (unsigned long)time(NULL);
     }
     return seed;
 }
@@ -169,6 +174,8 @@ void ht_destroy(Hash_Table *table,const char* persistenceFilePath){
         ptrFile = fopen(persistenceFilePath,"wb");
         if(!ptrFile) perror("Impossible to open the file specified as persistenceFilePath parameter\n");
     }
+    
+    //clean and save every Entry of the pool
     for(size_t i = 0;i<table->capacity;i++){
         Entry *current = table->pool[i];
 

@@ -11,6 +11,7 @@
 #include "hash_table.h"
 #include "config.h"
 
+
 typedef struct Route{
     char *path;
     int (*handler)(Hash_Table* table, const char* url, char* responseBuffer);

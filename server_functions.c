@@ -11,8 +11,6 @@ int main(int argc,char **argv){
     }
 
     server_loop(db,start_server(PORT));
-
-    printf("EXIT");
     ht_destroy(db,argv[1]);
 }
 
@@ -38,7 +36,7 @@ static void *handle_client(void *arg) {
     ssize_t nBytes = read(ctx->socketFd, requestBuffer, BUFFER_SIZE - 1);
     if(nBytes > 0) requestBuffer[nBytes] = '\0';
 
-    int statusCode = handle_request(ctx->db, requestBuffer, responseBuffer, ctx->rwlock);
+    int statusCode = handle_request(ctx->db, requestBuffer, responseBuffer);
     send_response(ctx->socketFd, statusCode, responseBuffer);
     close(ctx->socketFd);
     free(ctx);
@@ -79,29 +77,24 @@ void server_loop(Hash_Table* db,int server_fd){
 }
 
 void send_response(int socketFd,int statusCode,char* responseMsg){
-    char fullResponseBuffer[BUFFER_SIZE+512];
+    char header[256]; 
     char *statusMsg;
 
-    switch(statusCode){
-        case 200:
-            statusMsg="OK"; break;
-        case 400:
-            statusMsg="Bad Request"; break;
-        case 404:
-            statusMsg="Not Found"; break;
-        default:
-            statusMsg="Internal Server Error"; break;
+    switch(statusCode) {
+        case 200: statusMsg="OK"; break;
+        case 400: statusMsg="Bad Request"; break;
+        case 404: statusMsg="Not Found"; break;
+        default:  statusMsg="Error"; break;
     }
-    int len = snprintf(fullResponseBuffer, sizeof(fullResponseBuffer),
-        "HTTP/1.1 %d %s\r\n" 
-        "Content-Type: text/plain\r\n"
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "%s", 
-        statusCode, statusMsg, strlen(responseMsg), responseMsg);
 
-        write(socketFd,fullResponseBuffer,len);
+    int headerLen = snprintf(header, sizeof(header),
+        "HTTP/1.1 %d %s\r\n" 
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n", 
+        statusCode, statusMsg, strlen(responseMsg));
+
+    write(socketFd, header, headerLen);
+    write(socketFd, responseMsg, strlen(responseMsg)); 
 }
 
 
