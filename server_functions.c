@@ -1,17 +1,60 @@
 #include "server_functions.h"
 volatile sig_atomic_t keep_running = 1;
 
-int main(int argc,char **argv){
-    config_signal_context();
-    Hash_Table *db = ht_create(5,hash_key);
-    if(ht_load(db,argv[1])){
-        printf("Table loaded from %s\n",argv[1]);
-    }else{
-        printf("Empty table\n");
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
+    // Inizializziamo a -1 (nessun file)
+    *idxLoad = -1;
+    *idxSave = -1;
+
+    if (argc > 5) {
+        fprintf(stderr, "Usage:\n  %s <file> (load & save)\n  %s -ls <file> (load & save)\n  %s -l <file> -s <file>\n", argv[0], argv[0], argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    server_loop(db,start_server(PORT));
-    ht_destroy(db,argv[1]);
+    // Caso semplice: ./server database.db
+    if (argc == 2 && argv[1][0] != '-') {
+        *idxLoad = *idxSave = 1;
+        return;
+    }
+
+    // Casi con flag
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-ls") == 0 && (i + 1) < argc) {
+            *idxLoad = *idxSave = i + 1;
+            return; // Trovato flag combinato, usciamo
+        }
+        if (strcmp(argv[i], "-l") == 0 && (i + 1) < argc) {
+            *idxLoad = i + 1;
+        }
+        if (strcmp(argv[i], "-s") == 0 && (i + 1) < argc) {
+            *idxSave = i + 1;
+        }
+    }
+}
+
+int main(int argc, char **argv) {
+    int idxLoad, idxSave;
+    analyze_args(argc, argv, &idxLoad, &idxSave);
+
+    config_signal_context();
+    Hash_Table *db = ht_create(5, hash_key);
+
+    if (idxLoad != -1 && ht_load(db, argv[idxLoad])) {
+        printf("Table loaded from %s\n", argv[idxLoad]);
+    } else {
+        printf("Starting with empty table\n");
+    }
+
+    server_loop(db, start_server(PORT));
+
+    printf("\nSaving and exiting...\n");
+    ht_destroy(db, (idxSave != -1) ? argv[idxSave] : NULL);
+
+    return 0;
 }
 
 void config_signal_context(){
