@@ -1,5 +1,7 @@
 #include "hash_table.h"
 
+//resize a table managing the reallocation of the entries.It returns an error code
+static int ht_resize(Hash_Table* table);
 
 int ht_get(Hash_Table *table,char *key,void *destBuffer,size_t destSize){
     pthread_rwlock_rdlock(&table->lock); //block only writers (set or delete)
@@ -101,9 +103,8 @@ int ht_delete(Hash_Table *table,char *key){
     free(toDelete);
     table->size--;
 
-    success:
-        pthread_rwlock_unlock(&table->lock);
-        return 1;
+    pthread_rwlock_unlock(&table->lock);
+    return 1;
     
     error:
         pthread_rwlock_unlock(&table->lock);
@@ -130,7 +131,7 @@ Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
 
 }
 
-int ht_resize(Hash_Table* table){
+static int ht_resize(Hash_Table* table){
     size_t oldCapacity = table->capacity;
     
     //update capacity and pool
@@ -190,8 +191,9 @@ void ht_destroy(Hash_Table *table,const char* persistenceFilePath){
     }
     if(ptrFile) fclose(ptrFile);
     free(table->pool);
-    free(table);
     pthread_rwlock_destroy(&table->lock);
+    free(table);
+
 }
 
 void save_data_on_file(Entry* entryToSave, FILE *f) {

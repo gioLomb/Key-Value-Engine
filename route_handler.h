@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <stdarg.h>
 #include <netinet/in.h>
+#include <ctype.h>
 #include "hash_table.h"
 #include "config.h"
 

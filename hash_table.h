@@ -10,8 +10,6 @@
 
 #define MAX_KEY_LEN (1<<12)
 #define MAX_VALUE_SIZE (1<<20)
-#define get(table, key, T) (*(T*)ht_get(table, key))
-
 typedef unsigned long (*hash_func)(const unsigned char *, unsigned long);
 
 typedef struct Entry {
@@ -45,9 +43,6 @@ int ht_delete(Hash_Table *table,char *key);
 
 //get the value from a table based on the key.It returns the error code
 int ht_get(Hash_Table *table,char *key,void *destBuffer,size_t destSize);
-
-//resize the table capacity.It returns the error code
-int ht_resize(Hash_Table* table);
 
 //load an existing table from a file.If it returns 0 the table starts as empty
 int ht_load(Hash_Table *table,const char* persistenceFilePath);

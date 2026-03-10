@@ -6,31 +6,40 @@ volatile sig_atomic_t keep_running = 1;
 #include <stdlib.h>
 
 void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
-    // Inizializziamo a -1 (nessun file)
     *idxLoad = -1;
     *idxSave = -1;
 
     if (argc > 5) {
-        fprintf(stderr, "Usage:\n  %s <file> (load & save)\n  %s -ls <file> (load & save)\n  %s -l <file> -s <file>\n", argv[0], argv[0], argv[0]);
+        fprintf(stderr, "Usage:\n  %s <file>\n  %s -ls <file>\n  %s -l <file> -s <file>\n", argv[0], argv[0], argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    // Caso semplice: ./server database.db
     if (argc == 2 && argv[1][0] != '-') {
         *idxLoad = *idxSave = 1;
         return;
     }
 
-    // Casi con flag
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ls") == 0 && (i + 1) < argc) {
+            if (*idxLoad != -1 || *idxSave != -1) {
+                fprintf(stderr, "Error: duplicate load/save flags\n");
+                exit(EXIT_FAILURE);
+            }
             *idxLoad = *idxSave = i + 1;
-            return; // Trovato flag combinato, usciamo
+            return;
         }
         if (strcmp(argv[i], "-l") == 0 && (i + 1) < argc) {
+            if (*idxLoad != -1) {
+                fprintf(stderr, "Error: duplicate -l flag\n");
+                exit(EXIT_FAILURE);
+            }
             *idxLoad = i + 1;
         }
         if (strcmp(argv[i], "-s") == 0 && (i + 1) < argc) {
+            if (*idxSave != -1) {
+                fprintf(stderr, "Error: duplicate -s flag\n");
+                exit(EXIT_FAILURE);
+            }
             *idxSave = i + 1;
         }
     }
@@ -74,7 +83,7 @@ void handle_sigint(int sig) {
 static void *handle_client(void *arg) {
     ClientContext *ctx = (ClientContext*)arg;
     char requestBuffer[BUFFER_SIZE]  = {0};
-    char responseBuffer[BUFFER_SIZE] = {0};
+    char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
 
     ssize_t nBytes = read(ctx->socketFd, requestBuffer, BUFFER_SIZE - 1);
     if(nBytes > 0) requestBuffer[nBytes] = '\0';
@@ -119,25 +128,35 @@ void server_loop(Hash_Table* db,int server_fd){
     }
 }
 
-void send_response(int socketFd,int statusCode,char* responseMsg){
-    char header[256]; 
+void send_response(int socketFd, int statusCode, char *responseMsg) {
     char *statusMsg;
-
     switch(statusCode) {
-        case 200: statusMsg="OK"; break;
-        case 400: statusMsg="Bad Request"; break;
-        case 404: statusMsg="Not Found"; break;
-        default:  statusMsg="Error"; break;
+        case 200: statusMsg = "OK"; break;
+        case 400: statusMsg = "Bad Request"; break;
+        case 404: statusMsg = "Not Found"; break;
+        default:  statusMsg = "Error"; break;
     }
 
-    int headerLen = snprintf(header, sizeof(header),
-        "HTTP/1.1 %d %s\r\n" 
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n\r\n", 
-        statusCode, statusMsg, strlen(responseMsg));
+    size_t bodyLen = strlen(responseMsg);
+    size_t totalEstimatedSize = 256 + bodyLen + 1; 
 
-    write(socketFd, header, headerLen);
-    write(socketFd, responseMsg, strlen(responseMsg)); 
+    char *fullResponse = malloc(totalEstimatedSize);
+    if (!fullResponse) return;
+
+    int writtenLen = snprintf(fullResponse, totalEstimatedSize,
+        "HTTP/1.1 %d %s\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n\r\n"
+        "%s",
+        statusCode, statusMsg, bodyLen, responseMsg);
+
+    if (writtenLen > 0 && writtenLen < (int)totalEstimatedSize) {
+        ssize_t written = write(socketFd, fullResponse, writtenLen);
+        if (written < 0) perror("write failed");
+        else if ((size_t)written < (size_t)writtenLen) fprintf(stderr, "partial write\n");
+    }
+
+    free(fullResponse);
 }
 
 
@@ -168,7 +187,7 @@ int start_server(int port){
     }
 
     //listen max 3 connections
-    if (listen(server_fd, 3) < 0) {
+    if (listen(server_fd, LISTEN_BACKLOG) < 0) {
         perror("Listen fallito");
         exit(EXIT_FAILURE);
     }

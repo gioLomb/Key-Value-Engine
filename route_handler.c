@@ -24,7 +24,9 @@ static Route routes[]={
 
 int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     char url[URL_BUFFER_SIZE] = {0};
-    char *firstLine = strtok(requestBuffer, "\n");
+    //define thread local memory for thread-safety strtok
+    char* saverPtr;
+    char *firstLine = strtok_r(requestBuffer, "\n",&saverPtr);
 
     if(!firstLine) {
         snprintf(responseBuffer, BUFFER_SIZE, "Bad Request\n");
@@ -54,7 +56,7 @@ int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
     if(key[0]) {
         
         if(ht_get(table, key,value,PARAM_VALUE_SIZE)) {
-            snprintf(responseBuffer, BUFFER_SIZE, "{%s}\n", value);
+            snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "{\"value\":\"%s\"}\n", value);
             statusCode = 200;
         } else {
             snprintf(responseBuffer, BUFFER_SIZE, "key not exists\n");
@@ -70,6 +72,22 @@ int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
     return statusCode;
 }
 
+static int is_sanitized(const char *input) {
+    for (const char *p = input; *p; p++) {
+        char c;
+        if (*p == '%' && isxdigit((unsigned char)*(p+1)) && isxdigit((unsigned char)*(p+2))) {
+            //url decodin
+            char hex[3] = { *(p+1), *(p+2), '\0' };
+            c = (char)strtol(hex, NULL, 16);
+            p += 2; 
+        } else {
+            c = *p;
+        }
+        if (!isprint((unsigned char)c)) return 0;
+    }
+    return 1;
+}
+
 int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
     char val[PARAM_VALUE_SIZE] = {0};
@@ -77,7 +95,7 @@ int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
     get_query_param(url, "key=", key, PARAM_KEY_SIZE);
     get_query_param(url, "val=", val, PARAM_VALUE_SIZE);
 
-    if(key[0] && val[0]) {
+    if(key[0] && val[0] && is_sanitized(key) && is_sanitized(val)) {
 
         if(ht_set(table, key, val, strlen(val) + 1)) {
             snprintf(responseBuffer, BUFFER_SIZE, "stored\n");
@@ -144,3 +162,4 @@ static void extract_url(char *firstLineRequest,char *dest,size_t maxLen){
     memcpy(dest,start,len);
     dest[(size_t)(end-start)] = '\0';
 }
+
