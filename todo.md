@@ -1,13 +1,8 @@
-3. Parsing HTTP più sicuro
-In route_handler.c, usi strtok(requestBuffer, "\n") e strstr. Se un client invia una richiesta malformata o molto lenta, il server potrebbe leggere dati non inizializzati.
+parallelizzare alcune istruzioni ????
 
-Miglioramento:
+# Bug & Miglioramenti — C HTTP Server
 
-Verifica sempre il valore di ritorno di read() nel thread del client.
-
-Usa strnstr o limita le ricerche alla dimensione dei dati effettivamente letti (nBytes).
-
-4. Ottimizzazione della Hash Table
+[x] 4. Ottimizzazione della Hash Table
 La tua tabella ha una capacità iniziale molto bassa (5). Anche se hai ht_resize, le collisioni saranno frequenti all'inizio.
 
 Miglioramento:
@@ -15,15 +10,6 @@ Miglioramento:
 Usa una dimensione iniziale più grande (es. 101 o 1024).
 
 Importante: Assicurati che ht_resize utilizzi numeri primi per la capacità, riduce drasticamente le collisioni.
-
-4. handle_client — thread non joinable senza cleanup garantito
-Con pthread_detach i thread sono fire-and-forget: se il server viene killato mentre un thread sta scrivendo nella hash table, puoi avere corruzione dei dati o lock non rilasciati.
-
-# Bug & Miglioramenti — C HTTP Server
-
-Problemi ordinati dal più critico al meno. Spunta ogni fix man mano che lo risolviamo.
-
----
 
 ## 🔴 Bug Critici
 

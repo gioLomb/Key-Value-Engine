@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
     analyze_args(argc, argv, &idxLoad, &idxSave);
 
     config_signal_context();
-    Hash_Table *db = ht_create(5, hash_key);
+    Hash_Table *db = ht_create(3, hash_key);
 
     if (idxLoad != -1 && ht_load(db, argv[idxLoad])) {
         printf("Table loaded from %s\n", argv[idxLoad]);

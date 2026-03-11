@@ -131,11 +131,32 @@ Hash_Table* ht_create(size_t initialCapacity,hash_func hashFunction){
 
 }
 
+static int is_prime(size_t n) {
+    if (n < 2)  return 0;
+    if (n == 2 || n == 3) return 1;
+    if (n % 2 == 0 || n % 3 == 0) return 0;
+
+    //every prime > 3 follow the form 6k+1 V 6k-1
+    for (size_t i = 5; i * i <= n; i += 6) {
+        if (n % i == 0 || n % (i + 2) == 0) return 0;
+    }
+    return 1;
+}
+
+static size_t next_prime(size_t n) {
+    if (n < 2) return 2;
+    if (n % 2 == 0) n++;  // start from odds
+    while (!is_prime(n)) n += 2;
+    return n;
+}
+
 static int ht_resize(Hash_Table* table){
     size_t oldCapacity = table->capacity;
     
     //update capacity and pool
-    table->capacity *= 2;
+    size_t newCapacity = next_prime(table->capacity*2);
+    fprintf(stderr,"new prime capacity: %zu\n",newCapacity);
+    table->capacity = newCapacity;
     Entry **newPool = calloc(table->capacity,sizeof(Entry*));
     if(!newPool) return 0;
 

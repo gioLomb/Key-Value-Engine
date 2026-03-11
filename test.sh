@@ -77,8 +77,18 @@ echo ""
 # --- /set ---
 echo ">> SET"
 
-response=$(curl -s -o /dev/null -w "%{http_code}" "$HOST/set?key=name&val=mario")
-check_status "set valid key and value"              200 "$response"
+echo ">> SET MULTIPLE RECORDS"
+
+names=("mario" "luigi" "peach" "bowser" "toad" "yoshi" "wario" "donkey")
+
+for i in "${!names[@]}"; do
+    key="name_$i"
+    val="${names[$i]}"
+    response=$(curl -s -o /dev/null -w "%{http_code}" "$HOST/set?key=$key&val=$val")
+    check_status "set key=$key val=$val" 200 "$response"
+done
+
+echo ""
 
 response=$(curl -s "$HOST/set?key=name&val=mario")
 check        "set returns 'stored'"                "stored" "$response"
