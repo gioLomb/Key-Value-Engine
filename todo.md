@@ -1,4 +1,5 @@
 parallelizzare alcune istruzioni ????
+se davvero le strutture dati devono essere private prova a fare tipi incompleti mettendole nel .c(TASK e TASKQUEUE)
 
 # Bug & Miglioramenti — C HTTP Server
 
@@ -93,3 +94,54 @@ Importante: Assicurati che ht_resize utilizzi numeri primi per la capacità, rid
 - [x ] **14. Nessun test**
   - Aggiungere test basilari (es. script `curl` o piccolo test in C) migliorerebbe la manutenibilità
   - Fix: creare un `test.sh` con i casi principali (get/set/delete, chiavi mancanti, ecc.)
+
+
+
+
+
+
+
+
+  pool_create
+
+alloca il ThreadPool con malloc
+inizializza la coda a zero/NULL
+inizializza mutex e cond con pthread_mutex_init e pthread_cond_init
+setta shutdown = 0
+assegna db
+alloca l'array di pthread_t con malloc
+lancia ogni thread con pthread_create passando worker come funzione e il pool come argomento
+ritorna il pool
+
+
+pool_submit
+
+alloca un nuovo Task con malloc e assegna socketFd
+acquisisci il mutex
+inserisci il task in coda — ricorda di gestire sia il caso coda vuota che coda non vuota
+aggiorna size
+chiama pthread_cond_signal per svegliare un worker
+rilascia il mutex
+
+
+pool_destroy
+
+acquisisci il mutex
+setta shutdown = 1
+chiama pthread_cond_broadcast per svegliare tutti i worker dormienti
+rilascia il mutex
+fai pthread_join su ogni thread nell'array
+distruggi mutex e cond
+libera l'array dei thread e il pool stesso
+
+
+worker — la più delicata
+
+è un loop infinito
+all'inizio di ogni iterazione acquisisci il mutex
+usa while (non if) per aspettare sulla cond se la coda è vuota e shutdown == 0
+dopo il while controlla: se shutdown == 1 e la coda è vuota, rilascia il mutex e esci
+altrimenti prendi il task dalla testa della coda, aggiorna head e size
+rilascia il mutex
+gestisci il client con la logica che hai già in handle_client
+libera il task
