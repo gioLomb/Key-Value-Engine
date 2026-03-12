@@ -1,9 +1,8 @@
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H
 
-#include <pthread.h>
+#include "config.h"
 #include "hash_table.h"
-
 
 typedef struct Task {
     int socketFd;
@@ -16,7 +15,7 @@ typedef struct {
     int   size;
 } TaskQueue;
 
-typedef struct {
+typedef struct ThreadPool{
     pthread_t       *threads;
     int              threadCount;
     TaskQueue        queue;
@@ -37,4 +36,14 @@ void pool_submit(ThreadPool *pool, int socketFd);
 // signal shutdown, wait for all threads to finish and free the pool
 void pool_destroy(ThreadPool *pool);
 
+
+
+
+
+
+#endif
+#ifdef DEBUG
+    #define DEBUG_LOG(fmt, ...) fprintf(stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__)
+#else
+    #define DEBUG_LOG(fmt, ...) // no-op
 #endif

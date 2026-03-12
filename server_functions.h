@@ -1,32 +1,22 @@
 #ifndef SERVER_FUNCTIONS_H
 #define SERVER_FUNCTIONS_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <stdarg.h>
-#include <netinet/in.h>
-#include <signal.h>
-#include "hash_table.h"
-#include "route_handler.h"
 #include "config.h"
 
+//forward declaration
+typedef struct ThreadPool ThreadPool;
+
+//flag for signal SIGINT
 extern volatile sig_atomic_t keep_running;
 
-typedef struct {
-    int socketFd;
-    Hash_Table *db;
-} ClientContext;
-
+//a generic hash function
 unsigned long hash_key(const unsigned char *str,unsigned long seed);
 
 //create and configure the server socket for listening.It returns the socket file descriptor
 int start_server(int port);
 
 //manage new clients requests
-void server_loop(Hash_Table* db,int server_fd);
+void server_loop(ThreadPool *pool,int server_fd);
 
 //well-formatting the response and send it
 void send_response(int socketFd,int statusCode,char* responseMsg);

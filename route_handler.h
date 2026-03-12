@@ -1,17 +1,8 @@
 #ifndef ROUTE_HANDLER_H
 #define ROUTE_HANDLER_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <stdarg.h>
-#include <netinet/in.h>
-#include <ctype.h>
-#include "hash_table.h"
 #include "config.h"
-
+#include "hash_table.h"
 
 typedef struct Route{
     char *path;

@@ -50,7 +50,7 @@ cleanup() {
 
 # ── build ──────────────────────────────────────────────────────────────────────
 
-gcc route_handler.c hash_table.c server_functions.c -lpthread -o server
+gcc -DDEBUG route_handler.c hash_table.c server_functions.c threadPool.c -lpthread -o server
 if [ $? -ne 0 ]; then
     echo "Compilation failed"
     exit 1

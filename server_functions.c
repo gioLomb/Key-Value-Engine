@@ -1,9 +1,11 @@
+#include "hash_table.h"
 #include "server_functions.h"
+#include "route_handler.h"
+#include "threadPool.h"
+
 volatile sig_atomic_t keep_running = 1;
 
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
+
 
 void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
     *idxLoad = -1;
@@ -50,7 +52,7 @@ int main(int argc, char **argv) {
     analyze_args(argc, argv, &idxLoad, &idxSave);
 
     config_signal_context();
-    Hash_Table *db = ht_create(3, hash_key);
+    Hash_Table *db = ht_create(101, hash_key);
 
     if (idxLoad != -1 && ht_load(db, argv[idxLoad])) {
         printf("Table loaded from %s\n", argv[idxLoad]);
@@ -58,11 +60,16 @@ int main(int argc, char **argv) {
         printf("Starting with empty table\n");
     }
 
-    server_loop(db, start_server(PORT));
+    ThreadPool *pool = pool_create(8, db);
+    if (!pool) {
+        fprintf(stderr, "pool_create failed\n");
+        ht_destroy(db, NULL);
+        return EXIT_FAILURE;
+    }
 
-    printf("\nSaving and exiting...\n");
+    server_loop(pool, start_server(PORT));
+
     ht_destroy(db, (idxSave != -1) ? argv[idxSave] : NULL);
-
     return 0;
 }
 
@@ -79,53 +86,39 @@ void handle_sigint(int sig) {
     keep_running = 0;
 }
 
-//handle the client context for request parsing and response sending
-static void *handle_client(void *arg) {
-    ClientContext *ctx = (ClientContext*)arg;
-    char requestBuffer[BUFFER_SIZE]  = {0};
-    char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
+// //handle the client context for request parsing and response sending
+// static void *handle_client(void *arg) {
+//     ClientContext *ctx = (ClientContext*)arg;
+//     char requestBuffer[BUFFER_SIZE]  = {0};
+//     char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
 
-    ssize_t nBytes = read(ctx->socketFd, requestBuffer, BUFFER_SIZE - 1);
-    if(nBytes > 0) requestBuffer[nBytes] = '\0';
+//     ssize_t nBytes = read(ctx->socketFd, requestBuffer, BUFFER_SIZE - 1);
+//     if(nBytes > 0) requestBuffer[nBytes] = '\0';
 
-    int statusCode = handle_request(ctx->db, requestBuffer, responseBuffer);
-    send_response(ctx->socketFd, statusCode, responseBuffer);
-    close(ctx->socketFd);
-    free(ctx);
-    return NULL; //return value not needed
-}
+//     int statusCode = handle_request(ctx->db, requestBuffer, responseBuffer);
+//     send_response(ctx->socketFd, statusCode, responseBuffer);
+//     close(ctx->socketFd);
+//     free(ctx);
+//     return NULL; //return value not needed
+// }
 
-void server_loop(Hash_Table* db,int server_fd){
-    int newSocketFd;
+void server_loop(ThreadPool *pool, int server_fd) {
     struct sockaddr_in clientAddress;
-    int addrLen = sizeof(clientAddress);
+    socklen_t addrLen = sizeof(clientAddress);
+    int newSocketFd;
 
-    while(keep_running) {
-        // accept clients
-        newSocketFd = accept(server_fd, (struct sockaddr *)&clientAddress, (socklen_t*)&addrLen );
+    while (keep_running) {
+        newSocketFd = accept(server_fd, (struct sockaddr *)&clientAddress, &addrLen);
         if (newSocketFd < 0) {
-            //exit from loop when Ctrl+c
-            if(keep_running==0) break;
+            if (keep_running == 0) break;
             perror("connection failed");
             continue;
         }
-
-        //new client
-        ClientContext *ctx = malloc(sizeof(ClientContext));
-        if(!ctx) { close(newSocketFd); continue; }
-        ctx->socketFd = newSocketFd;
-        ctx->db = db;
-
-        //new thread for client
-        pthread_t thread;
-        if(pthread_create(&thread, NULL, handle_client, ctx) != 0) {
-            perror("pthread_create failed");
-            free(ctx);
-            close(newSocketFd);
-            continue;
-        }
-        pthread_detach(thread);
+        pool_submit(pool, newSocketFd);
     }
+
+    pool_destroy(pool);
+    close(server_fd);
 }
 
 void send_response(int socketFd, int statusCode, char *responseMsg) {
