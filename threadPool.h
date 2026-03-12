@@ -25,7 +25,6 @@ typedef struct ThreadPool{
     Hash_Table      *db;
 } ThreadPool;
 
-// ── public interface ───────────────────────────────────────────────────────────
 
 // create and start the thread pool with threadCount worker threads
 ThreadPool* pool_create(int threadCount, Hash_Table *db);

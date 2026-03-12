@@ -110,19 +110,19 @@ void pool_submit(ThreadPool *pool, int socketFd) {
 
 void pool_destroy(ThreadPool *pool) {
     pthread_mutex_lock(&pool->mutex);
+
     pool->shutdown = 1;
-    pthread_cond_broadcast(&pool->cond); 
+    pthread_cond_broadcast(&pool->cond); //wake up every worker
     pthread_mutex_unlock(&pool->mutex);
 
-    //stop every thread
+    // Wait for all worker threads to terminate
     for (int i = 0; i < pool->threadCount; i++) {
         pthread_join(pool->threads[i], NULL);
     }
 
+    //clean up
     pthread_mutex_destroy(&pool->mutex);
     pthread_cond_destroy(&pool->cond);
-
-    //clean up
     free(pool->threads);
     free(pool);
 }

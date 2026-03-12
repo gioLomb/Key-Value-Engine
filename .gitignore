@@ -3,3 +3,5 @@ test.sh
 a.out
 prime_proof.txt
 report_threadPool.txt
+server
+stress.c
