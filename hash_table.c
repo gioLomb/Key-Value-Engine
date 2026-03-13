@@ -99,7 +99,7 @@ int ht_set(Hash_Table *table, char *key, void *value, size_t valueSize) {
         index = h % table->capacity;
     }
 
-    // Prepend the new entry to the head of the bucket chain
+    // prepend the new entry to the head of the bucket chain
     Entry *newEntry = _create_entry(key, value, valueSize, h);
     if (!newEntry) goto error;
 
@@ -318,7 +318,7 @@ static int is_prime(size_t n) {
 
 static size_t next_prime(size_t n) {
     if (n < 2) return 2;
-    // Ensure we start on an odd number
+    // Ensure we start from  an odd number
     if (n % 2 == 0) n++;
     while (!is_prime(n)) n += 2;
     return n;

@@ -2,18 +2,25 @@
 
 /*PRIVATE FUNCTIONS DECLARATIONS*/
 
-//extract the url from the request body; it fills the dest buffer with valid url
+/* Returns 1 if the input contains only printable characters, decoding
+   percent-encoded sequences before checking. Returns 0 otherwise.*/
+static int is_sanitized(const char *input);
+
+/* Extracts the URL path and query string from the first line of an HTTP request
+   into dest. Writes an empty string if the line is malformed or the
+   result would exceed maxLen. */
 static void extract_url(char *firstLineRequest,char *dest,size_t maxLen);
 
-//extract value of specified param name if valid.
+/* Extracts the value of the specified query parameter from the URL into bufferDest.
+ Writes an empty string if the parameter is not found or the value exceeds maxLen.*/
 static void get_query_param(const char *url,const char* paramName,char* destBuffer,size_t maxLen);
 
-//wrapper functions for hash table interfaces
+/* wrapper functions for hash table interfaces */
 static int handler_get(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_set(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_delete(Hash_Table *table, const char *url, char *responseBuffer);
 
-//ROUTES
+/* ROUTES */
 static Route routes[]={
     {"/get",handler_get},
     {"/set",handler_set},
@@ -34,7 +41,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
     }
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
-    //lookup routing
+    // iterate over the static routes array
     for(int i = 0;i<sizeof(routes)/sizeof(routes[0]);i++){
         if(strncmp(url,routes[i].path,strlen(routes[i].path))== 0){
             return routes[i].handler(db,url,responseBuffer);
@@ -76,7 +83,7 @@ static int is_sanitized(const char *input) {
     for (const char *p = input; *p; p++) {
         char c;
         if (*p == '%' && isxdigit((unsigned char)*(p+1)) && isxdigit((unsigned char)*(p+2))) {
-            //url decodin
+            //url decoding
             char hex[3] = { *(p+1), *(p+2), '\0' };
             c = (char)strtol(hex, NULL, 16);
             p += 2; 
@@ -153,6 +160,7 @@ static void extract_url(char *firstLineRequest,char *dest,size_t maxLen){
     char *start = strchr(firstLineRequest,'/');
     if(!start) return;
 
+    //find the space before HTTP/x.x
     char *end = strchr(start,' ');
     if(!end) return;
 
@@ -162,4 +170,3 @@ static void extract_url(char *firstLineRequest,char *dest,size_t maxLen){
     memcpy(dest,start,len);
     dest[(size_t)(end-start)] = '\0';
 }
-
