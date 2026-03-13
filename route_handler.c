@@ -29,8 +29,11 @@ static Route routes[]={
 
 /*DEFINITIONS*/
 
-int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer) {
+int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int *keepAlive) {
     char url[URL_BUFFER_SIZE] = {0};
+    
+    *keepAlive = (strstr(requestBuffer, "Connection: keep-alive") != NULL) ? 1 : 0;
+
     //define thread local memory for thread-safety strtok
     char* saverPtr;
     char *firstLine = strtok_r(requestBuffer, "\n",&saverPtr);

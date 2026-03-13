@@ -50,6 +50,6 @@ void server_loop(ThreadPool *pool, int server_fd);
  * including the status line, Content-Length, and Connection headers,
  * and writes it to socketFd. Logs errors to stderr on partial or failed writes.
  */
-void send_response(int socketFd, int statusCode, char *responseMsg);
+void send_response(int socketFd, int statusCode, char *responseMsg,int keepAlive);
 
 #endif /* SERVER_FUNCTIONS_H */

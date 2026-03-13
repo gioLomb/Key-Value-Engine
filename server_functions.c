@@ -122,7 +122,7 @@ static int start_server(int port) {
     return server_fd;
 }
 
-void send_response(int socketFd, int statusCode, char *responseMsg) {
+void send_response(int socketFd, int statusCode, char *responseMsg,int keepAlive) {
     char *statusMsg;
     switch(statusCode) {
         case 200: statusMsg = "OK"; break;
@@ -140,9 +140,10 @@ void send_response(int socketFd, int statusCode, char *responseMsg) {
     int writtenLen = snprintf(fullResponse, totalEstimatedSize,
         "HTTP/1.1 %d %s\r\n"
         "Content-Length: %zu\r\n"
-        "Connection: close\r\n\r\n"
+        "Connection: %s\r\n\r\n"
         "%s",
-        statusCode, statusMsg, bodyLen, responseMsg);
+        statusCode, statusMsg, bodyLen,keepAlive? "keep-alive\r\nKeep-Alive: timeout=5\r\n": "close\r\n"
+        ,responseMsg);
 
     if (writtenLen > 0 && writtenLen < (int)totalEstimatedSize) {
         ssize_t written = write(socketFd, fullResponse, writtenLen);
@@ -164,6 +165,14 @@ void server_loop(ThreadPool *pool, int server_fd) {
             // accept() may be interrupted by SIGINT; check the flag before reporting
             if (keep_running == 0) break;
             perror("connection failed");
+            continue;
+        }
+
+        // set timeout
+        struct timeval timeout = { .tv_sec = KEEPALIVE_TIMEOUT, .tv_usec = 0 };
+        if (setsockopt(newSocketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+            perror("setsockopt SO_RCVTIMEO failed");
+            close(newSocketFd);
             continue;
         }
         pool_submit(pool, newSocketFd);

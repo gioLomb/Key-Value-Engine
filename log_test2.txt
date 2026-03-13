@@ -1,0 +1,64 @@
+========================================================
+  Stress Test
+  total clients: 100  |  block size: 25  |  blocks: 4
+========================================================
+
+>> SEQUENTIAL BASELINE (writes + reads + deletes)
+  writes:  1937ms  (avg 19ms/req)
+  reads:   1689ms  (avg 16ms/req)
+  deletes: 912ms  (avg 9ms/req)
+[0;36m   └─ done in 4549ms — 300 requests — avg 15ms/req[0m
+
+>> PARALLEL WRITES — 4 blocks of 25
+  [0;34mblock 1[0m [client 1 → 25]  115ms  avg 4ms/req
+  [0;34mblock 2[0m [client 26 → 50]  158ms  avg 6ms/req
+  [0;34mblock 3[0m [client 51 → 75]  119ms  avg 4ms/req
+  [0;34mblock 4[0m [client 76 → 100]  116ms  avg 4ms/req
+[0;36m   └─ done in 530ms — 100 requests — avg 5ms/req[0m
+
+>> PARALLEL READS — 4 blocks of 25
+  [0;34mblock 1[0m [client 1 → 25]  121ms  avg 4ms/req
+  [0;34mblock 2[0m [client 26 → 50]  158ms  avg 6ms/req
+  [0;34mblock 3[0m [client 51 → 75]  178ms  avg 7ms/req
+  [0;34mblock 4[0m [client 76 → 100]  215ms  avg 8ms/req
+[0;36m   └─ done in 706ms — 100 requests — avg 7ms/req[0m
+
+>> PARALLEL DELETES — 4 blocks of 25
+  [0;34mblock 1[0m [client 1 → 25]  240ms  avg 9ms/req
+  [0;34mblock 2[0m [client 26 → 50]  182ms  avg 7ms/req
+  [0;34mblock 3[0m [client 51 → 75]  99ms  avg 3ms/req
+  [0;34mblock 4[0m [client 76 → 100]  96ms  avg 3ms/req
+[0;36m   └─ done in 647ms — 100 requests — avg 6ms/req[0m
+
+>> HAMMER SINGLE KEY (100 concurrent overwrites)
+  [0;32m[PASS][0m hammer key readable after 100 concurrent overwrites
+[0;36m   └─ done in 376ms — 101 requests — avg 3ms/req[0m
+
+========================================================
+  TIMING REPORT
+========================================================
+PHASE                       TIME(ms)   REQUESTS  AVG(ms/req)
+--------------------------------------------------------
+sequential_baseline           4549ms        300         15ms
+parallel_writes                530ms        100          5ms
+parallel_reads                 706ms        100          7ms
+parallel_deletes               647ms        100          6ms
+hammer_single_key              376ms        101          3ms
+--------------------------------------------------------
+TOTAL                     4549ms → 1883ms        701
+========================================================
+
+  SEQUENTIAL vs PARALLEL (same 100 requests):
+  writes      seq:   1937ms  par:    530ms  speedup: 3.6x
+  reads       seq:   1689ms  par:    706ms  speedup: 2.3x
+  deletes     seq:    912ms  par:    647ms  speedup: 1.4x
+
+  BLOCK BREAKDOWN:
+  block           b1      b2      b3      b4
+  writes        115ms    158ms    119ms    116ms
+  reads         121ms    158ms    178ms    215ms
+  deletes       240ms    182ms     99ms     96ms
+========================================================
+
+  Results: 1 passed, 0 failed — 701 total requests
+========================================================

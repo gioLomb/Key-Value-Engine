@@ -24,17 +24,23 @@ static void* worker(void *arg);
 
 
 static void handle_client_task(Task *task, ThreadPool *pool) {
-    char requestBuffer[BUFFER_SIZE] = {0};
-    char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
+    int isKeptAlive = 0;
+    do{
+        char requestBuffer[BUFFER_SIZE] = {0};
+        char responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
 
-    ssize_t nBytes = read(task->socketFd, requestBuffer, BUFFER_SIZE - 1);
-    if (nBytes <= 0) {
-        if (nBytes < 0) perror("read failed");
-    } else {
-        requestBuffer[nBytes] = '\0';
-        int statusCode = handle_request(pool->db, requestBuffer, responseBuffer);
-        send_response(task->socketFd, statusCode, responseBuffer);
-    }
+        ssize_t nBytes = read(task->socketFd, requestBuffer, BUFFER_SIZE - 1);
+        if (nBytes <= 0) {
+            if (nBytes < 0){
+                perror("read failed");
+                break;
+            }
+        } else {
+            requestBuffer[nBytes] = '\0';
+            int statusCode = handle_request(pool->db, requestBuffer, responseBuffer,&isKeptAlive);
+            send_response(task->socketFd, statusCode, responseBuffer,isKeptAlive);
+        }
+    }while(isKeptAlive);
 }
 
 static void* worker(void *arg) {

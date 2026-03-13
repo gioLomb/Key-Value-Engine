@@ -34,6 +34,6 @@ typedef struct Route{
  * Returns 200 on success, 400 if the first line is missing or malformed,
  * 404 if no registered route matches the URL.
  */
-int handle_request(Hash_Table* db, char *requestBuffer, char *responseBuffer);
+int handle_request(Hash_Table* db, char *requestBuffer, char *responseBuffer,int *keepAlive);
 
 #endif /* ROUTE_HANDLER_H */
