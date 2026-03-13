@@ -23,6 +23,6 @@
 #define PARAM_KEY_SIZE       (1<<6) 
 #define PARAM_VALUE_SIZE     (1<<10) 
 #define RESPONSE_BUFFER_SIZE (PARAM_VALUE_SIZE + 256)
-#define LISTEN_BACKLOG       512
+#define LISTEN_BACKLOG       1023
 
 #endif

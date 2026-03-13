@@ -33,8 +33,8 @@ static void handle_client_task(Task *task, ThreadPool *pool) {
         if (nBytes <= 0) {
             if (nBytes < 0){
                 perror("read failed");
-                break;
             }
+            break;
         } else {
             requestBuffer[nBytes] = '\0';
             int statusCode = handle_request(pool->db, requestBuffer, responseBuffer,&isKeptAlive);

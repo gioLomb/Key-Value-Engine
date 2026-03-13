@@ -142,7 +142,7 @@ void send_response(int socketFd, int statusCode, char *responseMsg,int keepAlive
         "Content-Length: %zu\r\n"
         "Connection: %s\r\n\r\n"
         "%s",
-        statusCode, statusMsg, bodyLen,keepAlive? "keep-alive\r\nKeep-Alive: timeout=5\r\n": "close\r\n"
+        statusCode, statusMsg, bodyLen,keepAlive? "keep-alive\r\nKeep-Alive: timeout=5" : "close"
         ,responseMsg);
 
     if (writtenLen > 0 && writtenLen < (int)totalEstimatedSize) {
