@@ -45,14 +45,15 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
     // iterate over the static routes array
-    for(int i = 0;i<sizeof(routes)/sizeof(routes[0]);i++){
+    for(int i = 0;i<(sizeof(routes)/sizeof(routes[0]));i++){
         if(strncmp(url,routes[i].path,strlen(routes[i].path))== 0){
             return routes[i].handler(db,url,responseBuffer);
         }
     }
     
     //if comparation turned out bad
-    snprintf(responseBuffer, BUFFER_SIZE, "route does not exist\n");
+    printf("Bad routes url: %s",url);
+    snprintf(responseBuffer, BUFFER_SIZE, "route does not exist:%s\n");
     return 404;
 }
 
