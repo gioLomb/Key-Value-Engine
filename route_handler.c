@@ -45,7 +45,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
     // iterate over the static routes array
-    for(int i = 0;i<(sizeof(routes)/sizeof(routes[0]));i++){
+    for(size_t i = 0;i<(sizeof(routes)/sizeof(routes[0]));i++){
         if(strncmp(url,routes[i].path,strlen(routes[i].path))== 0){
             return routes[i].handler(db,url,responseBuffer);
         }
@@ -53,7 +53,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     
     //if comparation turned out bad
     printf("Bad routes url: %s",url);
-    snprintf(responseBuffer, BUFFER_SIZE, "route does not exist:%s\n");
+    snprintf(responseBuffer, BUFFER_SIZE, "route does not exist\n");
     return 404;
 }
 
@@ -66,7 +66,7 @@ int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
     get_query_param(url, "key=", key, PARAM_KEY_SIZE);
     if(key[0]) {
         
-        if(ht_get(table, key,value,PARAM_VALUE_SIZE)) {
+        if(ht_get(table, key,strlen(key)+1,value,PARAM_VALUE_SIZE)) {
             snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "{\"value\":\"%s\"}\n", value);
             statusCode = 200;
         } else {
@@ -108,7 +108,7 @@ int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
 
     if(key[0] && val[0] && is_sanitized(key) && is_sanitized(val)) {
 
-        if(ht_set(table, key, val, strlen(val) + 1)) {
+        if(ht_set(table, key,strlen(key)+1, val, strlen(val) + 1)) {
             snprintf(responseBuffer, BUFFER_SIZE, "stored\n");
             return 200;
         } else {
@@ -130,7 +130,7 @@ int handler_delete(Hash_Table* table, const char* url, char* responseBuffer){
 
     if(key[0]) {
 
-        if(ht_delete(table, key)) {
+        if(ht_delete(table, key,strlen(key)+1)) {
             snprintf(responseBuffer, BUFFER_SIZE, "value deleted\n");
             return 200;
         } else {

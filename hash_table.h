@@ -1,6 +1,6 @@
 /**
  * This module implements a thread-safe hash table using separate chaining
- * to resolve collisions. Keys are NUL-terminated C strings; values type is generic.
+ * to resolve collisions. Keys and values are generic binary buffers.
  * All operations are protected by a readers-writer lock, allowing concurrent reads
  * while serializing writes.
  *
@@ -23,7 +23,7 @@
 #define MAX_KEY_LEN    (1 << 12)   // 4 096 bytes
 #define MAX_VALUE_SIZE (1 << 20)   //1 MiB
 
-typedef unsigned long (*hash_func)(const unsigned char *key, unsigned long seed);
+typedef unsigned long (*hash_func)(const void *key, size_t keySize, unsigned long seed);
 
 /**
  * A single key-value pair stored in the hash table.
@@ -31,7 +31,8 @@ typedef unsigned long (*hash_func)(const unsigned char *key, unsigned long seed)
  * forming a linked list (chaining).
  */
 typedef struct Entry {
-    char          *key;    
+    void          *key;    
+    size_t keySize;
     void          *value;  
     size_t         size;   
     unsigned long  hash;  
@@ -82,21 +83,21 @@ void ht_destroy(Hash_Table *table, const char *persistenceFilePath);
  * Both table and key must not be NULL.
  * Returns 1 on success, 0 on memory allocation or resize failure.
  */
-int ht_set(Hash_Table *table, char *key, void *value, size_t valueSize);
+int ht_set(Hash_Table *table, void *key, size_t keySize, void *value, size_t valueSize);
 
 /**
  * Get a value by key, copying it into destBuffer. 
  * Acquires only a read lock, so multiple concurrent calls
  * are safe. Returns 1 if the key was found and data was copied, 0 otherwise.
  */
-int ht_get(Hash_Table *table, char *key, void *destBuffer, size_t destSize);
+int ht_get(Hash_Table *table, void *key, size_t keySize, void *destBuffer, size_t destSize);
 
 /**
  * Removes a key-value pair from the table, unlinking the entry from its bucket
  * chain and freeing all associated memory. Returns 1 if the key was found and
  * deleted, 0 if not found or if at least one param is NULL.
  */
-int ht_delete(Hash_Table *table, char *key);
+int ht_delete(Hash_Table *table, void *key, size_t keySize);
 
 /**
  * Populates the table from a binary file,

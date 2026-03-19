@@ -49,7 +49,7 @@ typedef struct {
  * using the recurrence hash = hash * 33 + c, seeded by seed to mitigate
  * hash-flooding attacks. Matches the hash_func signature required by ht_create().
  */
-unsigned long hash_key(const unsigned char *str, unsigned long seed);
+unsigned long hash_key(const void *key, size_t keySize, unsigned long seed);
 
 /**
  * Parses argv looking for flags, storing the index of the

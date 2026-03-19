@@ -9,7 +9,7 @@
  * the key string and the value. The raw hash is cached in the entry to avoid recomputing
  * it during resize. Returns NULL on allocation failure.
  */
-static Entry *_create_entry(const char *key, void *value, size_t valueSize, unsigned long hash);
+static Entry *_create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash);
 
 /**
  * Grows the bucket array to the next prime >= 2 * current capacity and relinks
@@ -46,6 +46,7 @@ static void save_data_on_file(Entry *entryToSave, FILE *f);
  */
 static unsigned long generate_secure_seed(void);
 
+static inline int keys_equal(const void *a, size_t aSize, const void *b, size_t bSize);
 
 /* API IMPLEMENTATION */
 
@@ -69,16 +70,16 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction) {
     return table;
 }
 
-int ht_set(Hash_Table *table, char *key, void *value, size_t valueSize) {
+int ht_set(Hash_Table *table, void *key, size_t keySize, void *value, size_t valueSize) {
     pthread_rwlock_wrlock(&table->lock);
 
-    unsigned long h = table->hashFunction((unsigned char *)key, table->seed);
+    unsigned long h = table->hashFunction(key,keySize, table->seed);
     unsigned int index = h % table->capacity;
     Entry *current = table->pool[index];
 
     // linear research of the specified key in the bucket chain
     while (current != NULL) {
-        if (strcmp(current->key, key) == 0) {
+        if (keys_equal(current->key, current->keySize, key, keySize)) {
             void *newValue = malloc(valueSize);
             if (!newValue) goto error;
 
@@ -100,7 +101,7 @@ int ht_set(Hash_Table *table, char *key, void *value, size_t valueSize) {
     }
 
     // prepend the new entry to the head of the bucket chain
-    Entry *newEntry = _create_entry(key, value, valueSize, h);
+    Entry *newEntry = _create_entry(key,keySize, value, valueSize, h);
     if (!newEntry) goto error;
 
     newEntry->next = table->pool[index];
@@ -115,14 +116,14 @@ error:
     return 0;
 }
 
-int ht_get(Hash_Table *table, char *key, void *destBuffer, size_t destSize) {
+int ht_get(Hash_Table *table, void *key, size_t keySize, void *destBuffer, size_t destSize) {
     pthread_rwlock_rdlock(&table->lock);
 
-    unsigned int index = table->hashFunction((unsigned char *)key, table->seed) % table->capacity;
+    unsigned int index = table->hashFunction(key,keySize, table->seed) % table->capacity;
     Entry *current = table->pool[index];
 
     while (current != NULL) {
-        if (strcmp(current->key, key) == 0) {
+        if (keys_equal(current->key, current->keySize, key, keySize)) {
             // copy only as many bytes as fit in the caller's buffer
             size_t sizeToCopy = (current->size < destSize) ? current->size : destSize;
             memcpy(destBuffer, current->value, sizeToCopy);
@@ -136,16 +137,16 @@ int ht_get(Hash_Table *table, char *key, void *destBuffer, size_t destSize) {
     return 0;  //key not found
 }
 
-int ht_delete(Hash_Table *table, char *key) {
+int ht_delete(Hash_Table *table, void *key,size_t keySize) {
     if (!table || !key) return 0;
     pthread_rwlock_wrlock(&table->lock);
 
-    unsigned int index = table->hashFunction((unsigned char *)key, table->seed) % table->capacity;
+    unsigned int index = table->hashFunction(key,keySize, table->seed) % table->capacity;
     Entry *current = table->pool[index];
     Entry *prev = NULL;
 
     // scan the chain to find the key
-    while (current != NULL && strcmp(key, current->key) != 0) {
+    while (current != NULL && !keys_equal(current->key, current->keySize, key, keySize)) {
         prev = current;
         current = current->next;
     }
@@ -200,9 +201,8 @@ void ht_destroy(Hash_Table *table, const char *persistenceFilePath) {
 }
 
 static void save_data_on_file(Entry *entryToSave, FILE *f) {
-    size_t key_len = strlen(entryToSave->key) + 1;
-    fwrite(&key_len, sizeof(size_t), 1, f);
-    fwrite(entryToSave->key, key_len, 1, f);
+    fwrite(&entryToSave->keySize, sizeof(size_t), 1, f);
+    fwrite(entryToSave->key, entryToSave->keySize, 1, f);
     fwrite(&entryToSave->size, sizeof(size_t), 1, f);
     fwrite(entryToSave->value, entryToSave->size, 1, f);
 }
@@ -225,17 +225,17 @@ int ht_load(Hash_Table *table, const char *persistenceFilePath) {
         val = malloc(valSize);
         if (!val || fread(val, valSize, 1, f) != 1) goto error;
 
-        ht_set(table, key, val, valSize);
+        ht_set(table, key, keyLen, val, valSize);
         free(key);
         free(val);
         key = val = NULL;
     }
 
-error:
-    free(key);
-    free(val);
-    fclose(f);
-    return 1;
+    error:
+        free(key);
+        free(val);
+        fclose(f);
+        return 1;
 }
 
 static unsigned long generate_secure_seed(void) {
@@ -253,27 +253,30 @@ static unsigned long generate_secure_seed(void) {
 
 
 
-static Entry *_create_entry(const char *key, void *value, size_t valueSize, unsigned long hash) {
+static Entry *_create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash) {
     Entry *newEntry = malloc(sizeof(Entry));
     if (!newEntry) return NULL;
 
-    newEntry->key = strdup(key);
+    newEntry->key = newEntry->value = NULL;
+
+    newEntry->key = malloc(keySize);
+    if (!newEntry->key) goto error;
+    memcpy(newEntry->key, key, keySize);
+    newEntry->keySize = keySize;
+
     newEntry->value = malloc(valueSize);
-
-    // if either allocation fails, roll back
-    if (!newEntry->key || !newEntry->value) {
-        free(newEntry->key);
-        free(newEntry->value);
-        free(newEntry);
-        return NULL;
-    }
-
+    if (!newEntry->value) goto error;
     memcpy(newEntry->value, value, valueSize);
     newEntry->size = valueSize;
     newEntry->hash = hash;
     newEntry->next = NULL;
 
     return newEntry;
+
+    error:
+        free(newEntry->key);
+        free(newEntry);
+        return NULL; 
 }
 
 static int ht_resize(Hash_Table *table) {
@@ -302,6 +305,10 @@ static int ht_resize(Hash_Table *table) {
     table->pool = newPool;
     table->capacity = newCapacity;
     return 1;
+}
+
+static inline int keys_equal(const void *a, size_t aSize, const void *b, size_t bSize) {
+    return aSize == bSize && memcmp(a, b, aSize) == 0;
 }
 
 static int is_prime(size_t n) {
