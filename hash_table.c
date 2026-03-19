@@ -6,10 +6,10 @@
 
 /**
  * Allocates and initialises a new Entry node, performing deep copies of
- * the key string and the value. The raw hash is cached in the entry to avoid recomputing
+ * the key and the value. The raw hash is cached in the entry to avoid recomputing
  * it during resize. Returns NULL on allocation failure.
  */
-static Entry *_create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash);
+static Entry *create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash);
 
 /**
  * Grows the bucket array to the next prime >= 2 * current capacity and relinks
@@ -46,6 +46,11 @@ static void save_data_on_file(Entry *entryToSave, FILE *f);
  */
 static unsigned long generate_secure_seed(void);
 
+/**
+ * Compares two generic memory buffers for equality.
+ * First checks if sizes match to avoid unnecessary memory comparison.
+ * Returns 1 if buffers are identical, 0 otherwise.
+ */
 static inline int keys_equal(const void *a, size_t aSize, const void *b, size_t bSize);
 
 /* API IMPLEMENTATION */
@@ -56,8 +61,8 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction) {
     if (!table) return NULL;
 
     table->size = 0;
-    table->capacity = initialCapacity;
-    table->pool = calloc(initialCapacity, sizeof(Entry *));
+    table->capacity = initialCapacity > 0 ? initialCapacity : HT_INITIAL_CAPACITY;
+    table->pool = calloc(table->capacity, sizeof(Entry *));
 
     if (!table->pool) {
         free(table);
@@ -101,7 +106,7 @@ int ht_set(Hash_Table *table, void *key, size_t keySize, void *value, size_t val
     }
 
     // prepend the new entry to the head of the bucket chain
-    Entry *newEntry = _create_entry(key,keySize, value, valueSize, h);
+    Entry *newEntry = create_entry(key,keySize, value, valueSize, h);
     if (!newEntry) goto error;
 
     newEntry->next = table->pool[index];
