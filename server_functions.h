@@ -67,8 +67,8 @@ void config_signal_context(void);
 
 /**
  * Runs the epoll event loop until keep_running is cleared by SIGINT.
- * Accepts new connections on sctx.server_fd (draining the backlog with
- * EPOLLET), dispatches data events to dispatch_event(), and closes idle
+ * Accepts new connections on sctx.server_fd,
+ *  dispatches data events to dispatch_event(), and closes idle
  * connections when their associated timerfd fires.
  * On exit, closes all open client sockets, the epoll fd, and the server fd.
  */

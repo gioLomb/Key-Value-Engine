@@ -22,7 +22,7 @@
 
 #define MAX_KEY_LEN    (1 << 12)   // 4 096 bytes
 #define MAX_VALUE_SIZE (1 << 20)   //1 MiB
-#define HT_INITIAL_CAPACITY 101
+#define HT_DEFAULT_CAPACITY 101
 
 typedef unsigned long (*hash_func)(const void *key, size_t keySize, unsigned long seed);
 

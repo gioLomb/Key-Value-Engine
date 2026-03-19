@@ -61,7 +61,7 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction) {
     if (!table) return NULL;
 
     table->size = 0;
-    table->capacity = initialCapacity > 0 ? initialCapacity : HT_INITIAL_CAPACITY;
+    table->capacity = initialCapacity > 0 ? initialCapacity : HT_DEFAULT_CAPACITY;
     table->pool = calloc(table->capacity, sizeof(Entry *));
 
     if (!table->pool) {
@@ -138,8 +138,9 @@ int ht_get(Hash_Table *table, void *key, size_t keySize, void *destBuffer, size_
         current = current->next;
     }
 
+    //key not found
     pthread_rwlock_unlock(&table->lock);
-    return 0;  //key not found
+    return 0;  
 }
 
 int ht_delete(Hash_Table *table, void *key,size_t keySize) {
@@ -150,7 +151,7 @@ int ht_delete(Hash_Table *table, void *key,size_t keySize) {
     Entry *current = table->pool[index];
     Entry *prev = NULL;
 
-    // scan the chain to find the key
+    // scan the chain to find the deletion
     while (current != NULL && !keys_equal(current->key, current->keySize, key, keySize)) {
         prev = current;
         current = current->next;
@@ -215,7 +216,7 @@ static void save_data_on_file(Entry *entryToSave, FILE *f) {
 int ht_load(Hash_Table *table, const char *persistenceFilePath) {
     if (!persistenceFilePath) return 0;
     FILE *f = fopen(persistenceFilePath, "rb");
-    if (!f) return 0;
+    if (!f) return 0; //starting from empty table
 
     char *key = NULL;
     void *val = NULL;
@@ -258,10 +259,11 @@ static unsigned long generate_secure_seed(void) {
 
 
 
-static Entry *_create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash) {
+static Entry *create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash) {
     Entry *newEntry = malloc(sizeof(Entry));
     if (!newEntry) return NULL;
 
+    //prepare newEntry fields
     newEntry->key = newEntry->value = NULL;
 
     newEntry->key = malloc(keySize);
