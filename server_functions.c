@@ -12,64 +12,36 @@ volatile sig_atomic_t keep_running = 1;
 /* STATIC FUNCTION PROTOTYPES */
 
 
-/**
- * Sets keep_running to 0 so that server_loop() exits cleanly on the next
- * iteration. The signal parameter is intentionally unused; the cast to void
- * suppresses the unused-parameter warning without altering behaviour.
- */
 static void handle_sigint(int sig);
-
-/**
- * Creates and configures the listening TCP socket: sets SO_REUSEADDR,
- * switches the fd to non-blocking mode, binds to INADDR_ANY on port,
- * and starts listening with a backlog of LISTEN_BACKLOG. Then creates
- * an epoll instance with EPOLL_CLOEXEC and registers the server fd for
- * edge-triggered EPOLLIN events. Calls exit(EXIT_FAILURE) on any fatal error.
- * Returns a fully initialised ServerCtx.
- */
 static ServerCtx start_server(int port);
-
-/**
- * Adds the O_NONBLOCK flag to fd using fcntl(), preserving all existing flags.
- * Returns 0 on success, -1 if either fcntl() call fails.
- */
 static int set_nonblocking(int fd);
 
 /**
- * Creates a one-shot CLOCK_MONOTONIC timerfd with TFD_NONBLOCK | TFD_CLOEXEC
- * and arms it to fire after KEEPALIVE_TIMEOUT seconds. The interval is set to
- * zero so it does not repeat. Returns the new fd on success, -1 on failure
- * (the fd is closed before returning in that case).
+ * Creates a one-shot CLOCK_MONOTONIC timerfd armed to fire after
+ * KEEPALIVE_TIMEOUT seconds. Returns the fd on success, -1 on failure.
  */
 static int make_timerfd(void);
 
 /**
- * Re-arms the keepalive timerfd inside ctx, resetting the countdown to
- * KEEPALIVE_TIMEOUT seconds from now. Does nothing if ctx->timer_fd is -1.
- * Called after each successful request/response cycle on a keep-alive connection.
+ * Re-arms ctx->timer_ev.fd to KEEPALIVE_TIMEOUT seconds from now.
+ * Does nothing if the fd is -1.
  */
 static void reset_timer(ClientCtx *ctx);
 
 /**
- * Performs a full teardown of a single client: removes both the socket fd and
- * the timerfd from epoll, deletes them from fd_map and tfd_map, closes both fds,
- * frees the heap-allocated ClientCtx, and decrements *active_clients.
- * Safe to call with ctx->timer_fd == -1 (the timer cleanup is skipped).
+ * Unlinks ctx from the live-client list, deregisters and closes both fds,
+ * frees the ClientCtx, and decrements *active_clients.
  */
 static void close_client(int epoll_fd, ClientCtx *ctx,
-                          Hash_Table *fd_map, Hash_Table *tfd_map,
-                          int *active_clients);
+                          ClientCtx **head, int *active_clients);
 
 /**
- * Reads the pending HTTP request from ctx->socket_fd into a stack buffer,
- * stopping as soon as the "\r\n\r\n" header terminator is detected or the
- * buffer is full. Dispatches the request to handle_request() and sends the
- * formatted response via send_response(). Resets the keepalive timer and
- * returns 1 if the connection should stay open, or calls close_client() and
- * returns 0 if it should be closed. Also returns 0 on read error or EOF.
+ * Reads the pending HTTP request from ctx->sock_ev.fd, dispatches it to
+ * handle_request(), and sends the response. Resets the timer and returns 1
+ * on keep-alive, calls close_client() and returns 0 otherwise.
  */
-static int dispatch_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, Hash_Table *fd_map,
-                            Hash_Table *tfd_map, int *active_clients);
+static int dispatch_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
+                           ClientCtx **head, int *active_clients);
 
 
 /* DEFINITIONS */
@@ -78,7 +50,6 @@ static int dispatch_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, Hash_Tab
 unsigned long hash_key(const void *key, size_t keySize, unsigned long seed) {
     const unsigned char *bytes = (const unsigned char *)key;
     unsigned long hash = seed;
-    // djb2: hash = hash * 33 + c, unrolled as (hash << 5) + hash + c
     for (size_t i = 0; i < keySize; i++)
         hash = ((hash << 5) + hash) + bytes[i];
     return hash;
@@ -106,10 +77,8 @@ void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
                 argv[0], argv[0], argv[0]);
         exit(EXIT_FAILURE);
     }
-    // bare filename with no flag: use the same path for both load and save
     if (argc == 2 && argv[1][0] != '-') { *idxLoad = *idxSave = 1; return; }
     for (int i = 1; i < argc; i++) {
-        // -ls <file>: shorthand for -l <file> -s <file>
         if (strcmp(argv[i], "-ls") == 0 && (i + 1) < argc) {
             if (*idxLoad != -1 || *idxSave != -1) {
                 fprintf(stderr, "Error: duplicate load/save flags\n"); exit(EXIT_FAILURE);
@@ -142,24 +111,24 @@ static int make_timerfd(void) {
 }
 
 static void reset_timer(ClientCtx *ctx) {
-    if (ctx->timer_fd == -1) return;
+    if (ctx->timer_ev.fd == -1) return;
     struct itimerspec ts = { .it_interval = {0,0}, .it_value = {KEEPALIVE_TIMEOUT,0} };
-    timerfd_settime(ctx->timer_fd, 0, &ts, NULL);
+    timerfd_settime(ctx->timer_ev.fd, 0, &ts, NULL);
 }
 
 static void close_client(int epoll_fd, ClientCtx *ctx,
-                          Hash_Table *fd_map, Hash_Table *tfd_map,
-                          int *active_clients) {
-    // deregister and remove the socket fd from the bookkeeping table
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ctx->socket_fd, NULL);
-    ht_delete(fd_map, &ctx->socket_fd, sizeof(ctx->socket_fd));
-    close(ctx->socket_fd);
+                          ClientCtx **head, int *active_clients) {
+    // unlink from the live-client doubly-linked list
+    if (ctx->prev) ctx->prev->next = ctx->next;
+    else           *head           = ctx->next;
+    if (ctx->next) ctx->next->prev = ctx->prev;
 
-    // deregister and remove the timerfd if one was created for this client
-    if (ctx->timer_fd != -1) {
-        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ctx->timer_fd, NULL);
-        ht_delete(tfd_map, &ctx->timer_fd, sizeof(ctx->timer_fd));
-        close(ctx->timer_fd);
+    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ctx->sock_ev.fd, NULL);
+    close(ctx->sock_ev.fd);
+
+    if (ctx->timer_ev.fd != -1) {
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ctx->timer_ev.fd, NULL);
+        close(ctx->timer_ev.fd);
     }
 
     free(ctx);
@@ -168,48 +137,42 @@ static void close_client(int epoll_fd, ClientCtx *ctx,
 
 static int dispatch_event(int epoll_fd, ClientCtx *ctx,
                            Hash_Table *db,
-                           Hash_Table *fd_map, Hash_Table *tfd_map,
-                           int *active_clients) {
-    char   requestBuffer[BUFFER_SIZE]           = {0};
+                           ClientCtx **head, int *active_clients) {
     char   responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
     size_t totalRead = 0;
     int    keepAlive = 0;
 
-    // accumulate bytes until the HTTP header terminator or buffer exhaustion
     while (totalRead < BUFFER_SIZE - 1) {
-        ssize_t nBytes = read(ctx->socket_fd,
-                              requestBuffer + totalRead,
+        ssize_t nBytes = read(ctx->sock_ev.fd,
+                              ctx->buffer + totalRead,
                               BUFFER_SIZE - 1 - totalRead);
         if (nBytes > 0) {
             totalRead += (size_t)nBytes;
-            // stop as soon as a complete HTTP header block is received
-            if (memmem(requestBuffer, totalRead, "\r\n\r\n", 4)) break;
+            if (memmem(ctx->buffer, totalRead, "\r\n\r\n", 4)) break;
         } else if (nBytes == 0) {
-            // peer closed the connection gracefully
-            close_client(epoll_fd, ctx, fd_map, tfd_map, active_clients);
+            close_client(epoll_fd, ctx, head, active_clients);
             return 0;
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // no data available yet; if nothing was read, just refresh the timer
                 if (totalRead == 0) { reset_timer(ctx); return 1; }
                 break;
             }
             perror("read failed");
-            close_client(epoll_fd, ctx, fd_map, tfd_map, active_clients);
+            close_client(epoll_fd, ctx, head, active_clients);
             return 0;
         }
     }
 
-    requestBuffer[totalRead] = '\0';
-    int statusCode = handle_request(db, requestBuffer, responseBuffer, &keepAlive);
-    send_response(ctx->socket_fd, statusCode, responseBuffer, keepAlive);
+    ctx->buffer[totalRead] = '\0';
+    int statusCode = handle_request(db, ctx->buffer, responseBuffer, &keepAlive);
+    send_response(ctx->sock_ev.fd, statusCode, responseBuffer, keepAlive);
 
     if (keepAlive) {
         reset_timer(ctx);
         return 1;
     }
 
-    close_client(epoll_fd, ctx, fd_map, tfd_map, active_clients);
+    close_client(epoll_fd, ctx, head, active_clients);
     return 0;
 }
 
@@ -220,7 +183,6 @@ static ServerCtx start_server(int port) {
     ctx.server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (ctx.server_fd == -1) { perror("socket failed"); exit(EXIT_FAILURE); }
 
-    // allow immediate reuse of the port after a server restart
     int opt = 1;
     if (setsockopt(ctx.server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt failed"); exit(EXIT_FAILURE);
@@ -237,7 +199,6 @@ static ServerCtx start_server(int port) {
     }
     if (listen(ctx.server_fd, LISTEN_BACKLOG) < 0) { perror("listen failed"); exit(EXIT_FAILURE); }
 
-    // create the epoll instance and register the server fd for edge-triggered reads
     ctx.epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (ctx.epoll_fd == -1) { perror("epoll_create1 failed"); exit(EXIT_FAILURE); }
 
@@ -280,44 +241,28 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
 
 void server_loop(ServerCtx sctx, Hash_Table *db) {
     struct epoll_event events[MAX_EVENTS];
-
-    // fd_map: socket_fd  → ClientCtx*   (O(1) lookup on data events)
-    // tfd_map: timer_fd  → ClientCtx*   (O(1) lookup on timeout events)
-    Hash_Table *fd_map  = ht_create(16387, hash_key);
-    Hash_Table *tfd_map = ht_create(16387, hash_key);
-    if (!fd_map || !tfd_map) {
-        fprintf(stderr, "ht_create failed\n");
-        ht_destroy(fd_map,  NULL);
-        ht_destroy(tfd_map, NULL);
-        close(sctx.epoll_fd);
-        close(sctx.server_fd);
-        return;
-    }
-
-    int active_clients = 0;
+    ClientCtx *head          = NULL;  // head of the live-client linked list
+    int        active_clients = 0;
 
     while (keep_running) {
         int nReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
         if (nReady == -1) {
-            if (errno == EINTR) continue; // interrupted by signal, check keep_running
+            if (errno == EINTR) continue;
             perror("epoll_wait failed");
             break;
         }
 
         for (int i = 0; i < nReady; i++) {
-            int fd = events[i].data.fd;
 
             // ── incoming connection on the listening socket ──────────────────
-            if (fd == sctx.server_fd) {
-                // drain all pending connections: 
-                // call accept() until EAGAIN to avoid missing events
+            if (events[i].data.fd == sctx.server_fd) {
                 while (1) {
                     struct sockaddr_in clientAddr;
                     socklen_t addrLen = sizeof(clientAddr);
                     int clientFd = accept(sctx.server_fd,
                                          (struct sockaddr *)&clientAddr, &addrLen);
                     if (clientFd == -1) {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) break; // queue drained
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
                         perror("accept failed"); break;
                     }
 
@@ -331,99 +276,73 @@ void server_loop(ServerCtx sctx, Hash_Table *db) {
                         close(clientFd); continue;
                     }
 
-                    ClientCtx *ctx = malloc(sizeof(ClientCtx));
+                    ClientCtx *ctx = calloc(1, sizeof(ClientCtx));
                     if (!ctx) {
-                        fprintf(stderr, "malloc ClientCtx failed\n");
+                        fprintf(stderr, "calloc ClientCtx failed\n");
                         close(clientFd); continue;
                     }
 
                     int tfd = make_timerfd();
                     if (tfd == -1)
-                        fprintf(stderr, "warn: make_timerfd failed (%s) — no keepalive timer\n",
+                        fprintf(stderr, "warn: make_timerfd failed (%s) - no keepalive timer\n",
                                 strerror(errno));
 
-                    ctx->socket_fd = clientFd;
-                    ctx->timer_fd  = tfd;
+                    // initialise the two embedded ConnectionEvents
+                    ctx->sock_ev  = (ConnectionEvent){ .fd = clientFd, .type = TYPE_SOCKET, .parent = ctx };
+                    ctx->timer_ev = (ConnectionEvent){ .fd = tfd,      .type = TYPE_TIMER,  .parent = ctx };
 
-                    // register socket_fd → ctx to resolve data events 
-                    if (!ht_set(fd_map, &clientFd, sizeof(clientFd), &ctx, sizeof(ctx))) {
-                        fprintf(stderr, "ht_set fd_map failed\n");
+                    // register socket_fd: data.ptr points to the embedded sock_ev
+                    struct epoll_event cev = { .events = EPOLLIN, .data.ptr = &ctx->sock_ev };
+                    if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, clientFd, &cev) == -1) {
+                        perror("epoll_ctl clientFd failed");
                         free(ctx); close(clientFd);
                         if (tfd != -1) close(tfd);
                         continue;
                     }
 
-                    // register timer_fd → ctx to resolve timeout events
-                    if (tfd != -1 && !ht_set(tfd_map, &tfd, sizeof(tfd), &ctx, sizeof(ctx))) {
-                        fprintf(stderr, "ht_set tfd_map failed\n");
-                        ht_delete(fd_map, &clientFd, sizeof(clientFd));
-                        free(ctx); close(clientFd); close(tfd); continue;
-                    }
-
-                    // have client's fd monitored by epoll
-                    struct epoll_event cev = { .events = EPOLLIN, .data.fd = clientFd };
-                    if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, clientFd, &cev) == -1) {
-                        perror("epoll_ctl clientFd failed");
-                        ht_delete(fd_map, &clientFd, sizeof(clientFd));
-                        if (tfd != -1) ht_delete(tfd_map, &tfd, sizeof(tfd));
-                        free(ctx); close(clientFd); if (tfd != -1) close(tfd); continue;
-                    }
-
                     if (tfd != -1) {
-                        // have the timer's fd monitored by epoll
-                        struct epoll_event tev = { .events = EPOLLIN, .data.fd = tfd };
+                        // register timer_fd: data.ptr points to the embedded timer_ev
+                        struct epoll_event tev = { .events = EPOLLIN, .data.ptr = &ctx->timer_ev };
                         if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, tfd, &tev) == -1) {
                             perror("epoll_ctl timerfd failed");
                             epoll_ctl(sctx.epoll_fd, EPOLL_CTL_DEL, clientFd, NULL);
-                            ht_delete(fd_map,  &clientFd, sizeof(clientFd));
-                            ht_delete(tfd_map, &tfd,      sizeof(tfd));
-                            free(ctx); close(clientFd); close(tfd); continue;
+                            free(ctx); close(clientFd); close(tfd);
+                            continue;
                         }
                     }
+
+                    // prepend to the live-client list
+                    ctx->next = head;
+                    ctx->prev = NULL;
+                    if (head) head->prev = ctx;
+                    head = ctx;
 
                     active_clients++;
                 }
                 continue;
             }
 
-            //keepalive timer expired
-            ClientCtx *expired = NULL;
-            if (ht_get(tfd_map, &fd, sizeof(fd), &expired, sizeof(expired)) && expired) {
-                // consume the timerfd event to prevent it from re-firing immediately
+            // ── client or timer event: resolve via data.ptr ──────────────────
+            // data.ptr points to a ConnectionEvent embedded inside the ClientCtx;
+            // no lookup needed — type and parent are read directly
+            ConnectionEvent *ev  = (ConnectionEvent *)events[i].data.ptr;
+            ClientCtx       *ctx = ev->parent;
+
+            if (ev->type == TYPE_TIMER) {
                 uint64_t expirations;
-                read(fd, &expirations, sizeof(expirations));
-                close_client(sctx.epoll_fd, expired, fd_map, tfd_map, &active_clients);
+                read(ctx->timer_ev.fd, &expirations, sizeof(expirations));
+                close_client(sctx.epoll_fd, ctx, &head, &active_clients);
                 continue;
             }
 
-            //data ready on a client socket
-            ClientCtx *ctx = NULL;
-            if (ht_get(fd_map, &fd, sizeof(fd), &ctx, sizeof(ctx)) && ctx)
-                dispatch_event(sctx.epoll_fd, ctx, db, fd_map, tfd_map, &active_clients);
+            dispatch_event(sctx.epoll_fd, ctx, db, &head, &active_clients);
         }
     }
 
-    // graceful shutdown: close every connection still tracked in fd_map
-    for (size_t i = 0; i < fd_map->capacity; i++) {
-        Entry *e = fd_map->pool[i];
-        while (e) {
-            Entry *next = e->next;
-            ClientCtx *ctx = *(ClientCtx **)e->value;
-            if (ctx) {
-                epoll_ctl(sctx.epoll_fd, EPOLL_CTL_DEL, ctx->socket_fd, NULL);
-                if (ctx->timer_fd != -1) {
-                    epoll_ctl(sctx.epoll_fd, EPOLL_CTL_DEL, ctx->timer_fd, NULL);
-                    close(ctx->timer_fd);
-                }
-                close(ctx->socket_fd);
-                free(ctx);
-            }
-            e = next;
-        }
-    }
+    // graceful shutdown: walk the live-client list and close every connection
+    while (head)
+        close_client(sctx.epoll_fd, head, &head, &active_clients);
 
-    ht_destroy(fd_map,  NULL);
-    ht_destroy(tfd_map, NULL);
     close(sctx.epoll_fd);
     close(sctx.server_fd);
 }
@@ -442,7 +361,6 @@ int main(int argc, char **argv) {
 
     server_loop(start_server(PORT), db);
 
-    // persist to file on exit only if a save path was provided
     ht_destroy(db, (idxSave != -1) ? argv[idxSave] : NULL);
     return 0;
 }

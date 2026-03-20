@@ -6,3 +6,4 @@ report_threadPool.txt
 server
 stress.c
 benchmark_report.docx
+temp/

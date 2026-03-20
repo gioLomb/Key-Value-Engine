@@ -6,12 +6,16 @@
  * The architecture is single-threaded and event-driven:
  *   - start_server() creates a non-blocking TCP socket and an epoll instance.
  *   - server_loop() runs epoll_wait() in a tight loop, dispatching each
- *     ready fd to either accept_connections() (server fd) or dispatch_event()
+ *     ready fd to either the accept path (server fd) or dispatch_event()
  *     (client fd), or closes idle connections when their timerfd fires.
- *   - Each accepted client gets a ClientCtx holding its socket fd and a
- *     one-shot timerfd used for the keepalive timeout. Both fds are
- *     registered in the same epoll instance, so timeout handling is
- *     integrated into the normal event loop without any extra threads.
+ *   - Each accepted client is represented by a ClientCtx that embeds two
+ *     ConnectionEvent structs (one for the socket fd, one for the timerfd).
+ *     Both are registered in epoll with data.ptr pointing to the respective
+ *     ConnectionEvent, so the event loop resolves type and owner with zero
+ *     extra lookups and zero extra allocations.
+ *   - All live ClientCtx are linked in a doubly-linked list anchored in
+ *     server_loop(), which replaces the hash tables used in earlier versions
+ *     and enables O(n) graceful shutdown without any auxiliary data structure.
  */
 
 #ifndef SERVER_FUNCTIONS_H
@@ -19,7 +23,7 @@
 
 #include "config.h"
 
-// set to 0 by the SIGINT handler; read by server_loop() to exit cleanly
+/* set to 0 by the SIGINT handler; read by server_loop() to exit cleanly */
 extern volatile sig_atomic_t keep_running;
 
 /**
@@ -32,29 +36,45 @@ typedef struct {
     int epoll_fd;
 } ServerCtx;
 
+typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
+
 /**
- * Per-connection context. socket_fd is the accepted TCP connection;
- * timer_fd is a one-shot CLOCK_MONOTONIC timerfd that fires after
- * KEEPALIVE_TIMEOUT seconds of inactivity and causes server_loop() to
- * close the connection. Both fds are registered in the epoll instance.
- * A slot with socket_fd == -1 is considered free.
+ * Describes a single monitored fd. Embedded (not heap-allocated) inside
+ * ClientCtx, so &ctx->sock_ev or &ctx->timer_ev can be stored directly in
+ * epoll_event.data.ptr without any extra malloc.
+ * On a fired event the handler casts data.ptr to ConnectionEvent*, reads
+ * type to decide the action, and follows parent to reach the owning context.
  */
-typedef struct {
-    int socket_fd;
-    int timer_fd;
+typedef struct ConnectionEvent {
+    int                   fd;
+    EvType                type;
+    struct ClientCtx     *parent;
+} ConnectionEvent;
+
+/**
+ * Per-connection context. sock_ev and timer_ev are embedded ConnectionEvent
+ * structs registered directly in epoll; no separate allocation is needed.
+ * buffer holds the incoming HTTP request for this connection.
+ * next/prev link all live contexts in a doubly-linked list anchored in
+ * server_loop(), enabling O(n) iteration during graceful shutdown without
+ * any auxiliary data structure.
+ */
+typedef struct ClientCtx {
+    ConnectionEvent  sock_ev;
+    ConnectionEvent  timer_ev;
+    char             buffer[BUFFER_SIZE];
+    struct ClientCtx *next;
+    struct ClientCtx *prev;
 } ClientCtx;
 
 /**
- * djb2 hash function. Combines each byte of str with the accumulated hash
- * using the recurrence hash = hash * 33 + c, seeded by seed to mitigate
- * hash-flooding attacks. Matches the hash_func signature required by ht_create().
+ * djb2 hash function. Matches the hash_func signature required by ht_create().
  */
 unsigned long hash_key(const void *key, size_t keySize, unsigned long seed);
 
 /**
- * Parses argv looking for flags, storing the index of the
- * load file path in idxLoad and the save file path in idxSave (-1 if absent).
- * A bare filename with no flag sets both to the same index.
+ * Parses argv looking for flags, storing the index of the load file path in
+ * idxLoad and the save file path in idxSave (-1 if absent).
  * Prints usage to stderr and exits on malformed or duplicate arguments.
  */
 void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave);
@@ -67,17 +87,13 @@ void config_signal_context(void);
 
 /**
  * Runs the epoll event loop until keep_running is cleared by SIGINT.
- * Accepts new connections on sctx.server_fd,
- *  dispatches data events to dispatch_event(), and closes idle
- * connections when their associated timerfd fires.
- * On exit, closes all open client sockets, the epoll fd, and the server fd.
+ * On exit, iterates the live-client list to close every open connection,
+ * then closes the epoll fd and the server fd.
  */
 void server_loop(ServerCtx sctx, Hash_Table *db);
 
 /**
- * Formats a complete HTTP/1.1 response from statusCode and responseMsg,
- * including the status line, Content-Length, and Connection headers,
- * and writes it to socketFd. Logs errors to stderr on partial or failed writes.
+ * Formats a complete HTTP/1.1 response and writes it to socketFd.
  */
 void send_response(int socketFd, int statusCode, char *responseMsg, int keepAlive);
 
