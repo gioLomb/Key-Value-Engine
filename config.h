@@ -22,7 +22,7 @@
 /* MACROS */
 #define KEEPALIVE_TIMEOUT    5
 #define PORT                 8080
-#define MAX_EVENTS           1024
+#define MAX_EVENTS           4096
 #define MAX_CLIENTS          16384
 #define BUFFER_SIZE          (1<<10)
 #define URL_BUFFER_SIZE      (1<<10)

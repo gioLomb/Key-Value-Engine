@@ -31,6 +31,10 @@ static Route routes[]={
 
 int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int *keepAlive) {
     char url[URL_BUFFER_SIZE] = {0};
+    char localCopy[BUFFER_SIZE];
+
+    strncpy(localCopy, requestBuffer, BUFFER_SIZE - 1);
+    localCopy[BUFFER_SIZE - 1] = '\0';
     
     *keepAlive = (strstr(requestBuffer, "Connection: keep-alive") != NULL) ? 1 : 0;
 
