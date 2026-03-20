@@ -261,11 +261,13 @@ void server_loop(ServerCtx sctx, Hash_Table *db) {
                     socklen_t addrLen = sizeof(clientAddr);
                     int clientFd = accept(sctx.server_fd,
                                          (struct sockaddr *)&clientAddr, &addrLen);
+
                     if (clientFd == -1) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) break;
                         perror("accept failed"); break;
                     }
-
+                    int yes = 1;
+                    setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
                     if (active_clients >= MAX_CLIENTS) {
                         fprintf(stderr, "max clients (%d) reached, dropping\n", MAX_CLIENTS);
                         close(clientFd); continue;

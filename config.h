@@ -16,12 +16,11 @@
 #include <time.h>
 #include <ctype.h>
 #include <errno.h>
-
-/* pthread rimane per hash_table.c (rwlock) */
+#include <netinet/tcp.h>
 #include <pthread.h>
 
 /* MACROS */
-#define KEEPALIVE_TIMEOUT    2
+#define KEEPALIVE_TIMEOUT    5
 #define PORT                 8080
 #define MAX_EVENTS           1024
 #define MAX_CLIENTS          16384
