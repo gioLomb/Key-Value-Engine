@@ -1,8 +1,6 @@
 #include "hash_table.h"
 
-
 /* STATIC FUNCTION PROTOTYPES */
-
 
 /**
  * Allocates and initialises a new Entry node, performing deep copies of
@@ -244,18 +242,7 @@ int ht_load(Hash_Table *table, const char *persistenceFilePath) {
         return 1;
 }
 
-static unsigned long generate_secure_seed(void) {
-    unsigned long seed;
-    FILE *f = fopen("/dev/urandom", "rb");
-    if (f) {
-        fread(&seed, sizeof(seed), 1, f);
-        fclose(f);
-    } else {
-        // fallback
-        seed = (unsigned long)time(NULL);
-    }
-    return seed;
-}
+
 
 
 
@@ -312,6 +299,19 @@ static int ht_resize(Hash_Table *table) {
     table->pool = newPool;
     table->capacity = newCapacity;
     return 1;
+}
+
+static unsigned long generate_secure_seed(void) {
+    unsigned long seed;
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (f) {
+        fread(&seed, sizeof(seed), 1, f);
+        fclose(f);
+    } else {
+        // fallback
+        seed = (unsigned long)time(NULL);
+    }
+    return seed;
 }
 
 static inline int keys_equal(const void *a, size_t aSize, const void *b, size_t bSize) {

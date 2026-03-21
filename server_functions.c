@@ -49,16 +49,14 @@ static void reset_timer(ClientCtx *ctx);
  * Unlinks ctx from the live-client list, deregisters and closes both fds,
  * frees the ClientCtx, and decrements *active_clients.
  */
-static void close_client(int epoll_fd, ClientCtx *ctx,
-                          ClientCtx **head, int *active_clients);
+static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients);
 
 /**
  * Allocates and fully initialises a ClientCtx for an already-accepted clientFd.
  * Returns 1 on success, 0 on any failure (resources are released internally;
  * the caller is responsible only for closing clientFd on failure).
  */
-static int setup_client(ServerCtx sctx, int clientFd,
-                         ClientCtx **head, int *active_clients);
+static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *active_clients);
 
 /**
  * Drains all pending connections from the listening socket, calling
@@ -71,16 +69,14 @@ static void accept_connections(ServerCtx sctx, ClientCtx **head, int *active_cli
  * Handles a fired timerfd event: consumes the expiration counter and closes
  * the owning client connection.
  */
-static void handle_timer_event(int epoll_fd, ClientCtx *ctx,
-                                ClientCtx **head, int *active_clients);
+static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients);
 
 /**
  * Reads the pending HTTP request from ctx->sock_ev.fd, dispatches it to
  * handle_request(), and sends the response. Resets the timer and returns 1
  * on keep-alive, calls close_client() and returns 0 otherwise.
  */
-static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
-                                ClientCtx **head, int *active_clients);
+static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, ClientCtx **head, int *active_clients);
 
 
 /* DEFINITIONS */
@@ -157,12 +153,10 @@ static void reset_timer(ClientCtx *ctx) {
     timerfd_settime(ctx->timer_ev.fd, 0, &ts, NULL);
 }
 
-static void close_client(int epoll_fd, ClientCtx *ctx,
-                          ClientCtx **head, int *active_clients) {
-                            
+static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients) {    
     //delete from list
     if (ctx->prev) ctx->prev->next = ctx->next;
-    else           *head           = ctx->next;
+    else *head = ctx->next;
     if (ctx->next) ctx->next->prev = ctx->prev;
 
     //delete epoll instance
@@ -178,8 +172,7 @@ static void close_client(int epoll_fd, ClientCtx *ctx,
     (*active_clients)--;
 }
 
-static int setup_client(ServerCtx sctx, int clientFd,
-                         ClientCtx **head, int *active_clients) {
+static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *active_clients) {
     ClientCtx *ctx = NULL;
     int tfd = -1;
 
@@ -203,8 +196,8 @@ static int setup_client(ServerCtx sctx, int clientFd,
         fprintf(stderr, "warn: make_timerfd failed (%s) - no keepalive timer\n",
                 strerror(errno));
 
-    ctx->sock_ev  = (ConnectionEvent){ .fd = clientFd, .type = TYPE_SOCKET, .parent = ctx };
-    ctx->timer_ev = (ConnectionEvent){ .fd = tfd,      .type = TYPE_TIMER,  .parent = ctx };
+    ctx->sock_ev = (ConnectionEvent){ .fd = clientFd, .type = TYPE_SOCKET, .parent = ctx };
+    ctx->timer_ev = (ConnectionEvent){ .fd = tfd, .type = TYPE_TIMER, .parent = ctx };
 
     //set epoll instances
     struct epoll_event cev = { .events = EPOLLIN, .data.ptr = &ctx->sock_ev };
@@ -256,8 +249,7 @@ static void accept_connections(ServerCtx sctx, ClientCtx **head, int *active_cli
     }
 }
 
-static void handle_timer_event(int epoll_fd, ClientCtx *ctx,
-                                ClientCtx **head, int *active_clients) {
+static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients) {
     // consume the expiration counter so the fd does not re-fire immediately
     uint64_t expirations;
     if (read(ctx->timer_ev.fd, &expirations, sizeof(expirations)) == -1 && errno != EAGAIN)
@@ -274,9 +266,8 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
     
     //get bytes from client (until EAGAIN)
     while (totalRead < BUFFER_SIZE - 1) {
-        ssize_t nBytes = read(ctx->sock_ev.fd,
-                              ctx->buffer + totalRead,
-                              BUFFER_SIZE - 1 - totalRead);
+        ssize_t nBytes = read(ctx->sock_ev.fd, ctx->buffer + totalRead, BUFFER_SIZE - 1 - totalRead);
+
         if (nBytes > 0) {
             totalRead += (size_t)nBytes;
             if (memmem(ctx->buffer, totalRead, "\r\n\r\n", 4)) break;
@@ -322,9 +313,9 @@ static ServerCtx start_server(int port) {
 
     if (set_nonblocking(ctx.server_fd) == -1) { perror("set_nonblocking failed"); exit(EXIT_FAILURE); }
 
-    address.sin_family      = AF_INET;
+    address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port        = htons(port);
+    address.sin_port = htons(port);
 
     if (bind(ctx.server_fd, (const struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed"); exit(EXIT_FAILURE);
@@ -349,10 +340,10 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
     static char fullResponse[256 + RESPONSE_BUFFER_SIZE];
     char *statusMsg;
     switch (statusCode) {
-        case 200: statusMsg = "OK";          break;
+        case 200: statusMsg = "OK"; break;
         case 400: statusMsg = "Bad Request"; break;
-        case 404: statusMsg = "Not Found";   break;
-        default:  statusMsg = "Error";       break;
+        case 404: statusMsg = "Not Found"; break;
+        default:  statusMsg = "Error"; break;
     }
 
     //make response string
@@ -373,7 +364,7 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
 void server_loop(ServerCtx sctx, Hash_Table *db) {
     struct epoll_event events[MAX_EVENTS];
     ClientCtx *head = NULL;
-    int        active_clients = 0;
+    int active_clients = 0;
 
     while (keep_running) {
         int nReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
