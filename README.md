@@ -1,7 +1,7 @@
-# ckvs — Concurrent Key-Value Server
+# ckvs — In-Memory Key-Value Server
 
-A lightweight, in-memory key-value store exposed over HTTP, written in C.  
-Designed around a thread-safe hash table, a fixed-size thread pool, and a minimal HTTP request dispatcher. No external dependencies beyond the POSIX standard library.
+A lightweight, in-memory key-value store exposed over HTTP, written in C.
+Built around a single-threaded epoll event loop, a thread-safe hash table, and a minimal HTTP request dispatcher. No external dependencies beyond the POSIX standard library.
 
 ---
 
@@ -9,14 +9,15 @@ Designed around a thread-safe hash table, a fixed-size thread pool, and a minima
 
 ```
                          ┌─────────────────────────────────────────┐
-                         │               server_functions.c         │
+                         │             server_functions.c           │
                          │  main() · start_server() · server_loop() │
+                         │  accept_connections() · setup_client()   │
                          └───────────────────┬─────────────────────┘
-                                             │ accept()
+                                             │ epoll_wait()
                                              ▼
                          ┌─────────────────────────────────────────┐
-                         │               threadPool.c               │
-                         │   pool_submit() ──► TaskQueue ──► worker │
+                         │         handle_socket_event()            │
+                         │         handle_timer_event()             │
                          └───────────────────┬─────────────────────┘
                                              │ read() / write()
                                              ▼
@@ -39,23 +40,43 @@ Designed around a thread-safe hash table, a fixed-size thread pool, and a minima
 | `config.h` | Global macros (port, buffer sizes, timeouts) |
 | `hash_table.{h,c}` | Thread-safe generic hash table |
 | `route_handler.{h,c}` | HTTP request parsing and route dispatch |
-| `server_functions.{h,c}` | Socket setup, main loop, signal handling, response formatting |
-| `threadPool.{h,c}` | Fixed-size worker thread pool with FIFO task queue |
+| `server_functions.{h,c}` | Socket setup, epoll event loop, signal handling, response formatting |
+
+---
+
+## Event Loop
+
+The server is **single-threaded and event-driven**. `server_loop()` calls `epoll_wait()` in a tight loop and dispatches each ready fd to one of three handlers:
+
+- **`accept_connections()`** — fires when a new TCP connection arrives on the listening socket. Drains the accept queue completely (edge-triggered), calling `setup_client()` for each fd.
+- **`handle_socket_event()`** — fires when data is available on a client socket. Reads the HTTP request, dispatches to the route handler, sends the response, and resets the keepalive timer.
+- **`handle_timer_event()`** — fires when a client's keepalive timerfd expires. Closes the connection immediately.
+
+### fd → ClientCtx resolution
+
+Each accepted client is represented by a `ClientCtx` that embeds two `ConnectionEvent` structs — one for the socket fd, one for the timerfd. Both are registered in epoll with `data.ptr` pointing to their respective `ConnectionEvent`. When an event fires, the loop casts `data.ptr` to `ConnectionEvent*`, reads the `type` field, and follows `parent` to reach the owning `ClientCtx` — **zero hash-table lookups, zero extra allocations**.
+
+The listening socket fd is registered with `data.ptr = NULL`, used as a sentinel to distinguish it from client events.
+
+### Live-client list
+
+All active `ClientCtx` are linked in a **doubly-linked list** anchored in `server_loop()`. This replaces the two auxiliary hash tables used in earlier versions and enables O(n) graceful shutdown by simply walking the list.
 
 ---
 
 ## Hash Table
 
-The hash table (`hash_table.c`) is the core data structure. It stores arbitrary binary values under NUL-terminated string keys.
+The hash table (`hash_table.c`) stores arbitrary binary values under binary keys.
 
 **Implementation details:**
 
 - **Collision resolution:** separate chaining via singly-linked lists per bucket.
 - **Concurrency:** a per-table `pthread_rwlock_t` serialises writes while allowing unlimited concurrent reads.
-- **Resizing:** when `size + 1 >= capacity`, the bucket array grows to the next prime ≥ 2 × capacity. Entries are relinked in-place (no reallocation) using the cached raw hash stored in each `Entry` node, so no re-hashing is needed.
-- **Hash function:** pluggable via function pointer (`hash_func`). The server wires in a seeded djb2 variant (`hash = hash * 33 + c`).
+- **Resizing:** when `size + 1 >= capacity`, the bucket array grows to the next prime ≥ 2 × capacity. Entries are relinked in-place using the cached raw hash stored in each `Entry` — no recomputation needed.
+- **Hash function:** pluggable via function pointer (`hash_func`). The server uses a seeded djb2 variant (`hash = hash * 33 + c`).
 - **Seed:** generated from `/dev/urandom` at table creation (fallback: `time(NULL)`) to mitigate hash-flooding attacks.
-- **Persistence:** `ht_destroy()` optionally serialises the entire table to a binary file; `ht_load()` reconstructs it. The on-disk format is a sequence of records `[key_len | key | val_size | value]`.
+- **Persistence:** `ht_destroy()` optionally serialises the entire table to a binary file; `ht_load()` reconstructs it on startup. On-disk format per record: `[key_len | key | val_size | value]`.
+- **Initial capacity:** pre-allocated to 16384 buckets at startup to avoid resize pauses under load.
 
 **Complexity:**
 
@@ -68,34 +89,23 @@ The hash table (`hash_table.c`) is the core data structure. It stores arbitrary 
 
 ---
 
-## Thread Pool
-
-`threadPool.c` implements a classic boss/worker pattern:
-
-- A fixed number of POSIX threads are spawned at startup and sleep on a condition variable (`pthread_cond_t`) when the task queue is empty.
-- `pool_submit()` wraps an accepted socket fd into a `Task` node, appends it to the FIFO queue, and signals exactly one worker (`pthread_cond_signal`).
-- Each worker dequeues a task, handles the full HTTP exchange (including keep-alive loops), closes the socket, and frees the task node before returning to sleep.
-- `pool_destroy()` sets a `shutdown` flag, broadcasts to all workers, then `pthread_join`s every thread to drain the queue before freeing resources.
-
----
-
 ## HTTP Request Handling
 
 The server implements a minimal subset of HTTP/1.1:
 
-- The first line of the request is parsed with `strtok_r` (re-entrant, thread-safe) to extract the URL path and query string.
+- The request is parsed on a **local stack copy** of the receive buffer so `strtok_r` never modifies the original `ClientCtx.buffer`.
 - Routes are matched by prefix against a static `Route[]` array. The first match wins.
-- Query parameters are extracted by `get_query_param()`, which scans for `name=value` pairs delimited by `&` or a space.
-- Input is validated by `is_sanitized()`, which percent-decodes the value on the fly and rejects any non-printable character.
-- Keep-alive is detected from the `Connection: keep-alive` header; the worker re-reads the socket in a loop until the client closes or the `SO_RCVTIMEO` timeout (5 s) fires.
+- Query parameters are extracted by `get_query_param()`, scanning for `name=value` pairs delimited by `&` or a space.
+- Input is validated by `is_sanitized()`, which percent-decodes on the fly and rejects any non-printable character.
+- Keep-alive is detected from the `Connection: keep-alive` header; the keepalive timerfd is reset after each successful response and fires after `KEEPALIVE_TIMEOUT` seconds of inactivity.
 
 ### Endpoints
 
-| Method | Path | Parameters | Success | Error |
-|---|---|---|---|---|
-| GET | `/get` | `key=<k>` | `200 {"value":"<v>"}` | `400` missing key · `404` not found |
-| GET | `/set` | `key=<k>&val=<v>` | `200 stored` | `400` bad params · `500` internal |
-| GET | `/delete` | `key=<k>` | `200 value deleted` | `400` missing key · `404` not found |
+| Path | Parameters | Success | Error |
+|---|---|---|---|
+| `/get` | `key=<k>` | `200 {"value":"<v>"}` | `400` missing key · `404` not found |
+| `/set` | `key=<k>&val=<v>` | `200 stored` | `400` bad params · `500` internal |
+| `/delete` | `key=<k>` | `200 value deleted` | `400` missing key · `404` not found |
 
 ---
 
@@ -103,7 +113,7 @@ The server implements a minimal subset of HTTP/1.1:
 
 ```bash
 gcc -O2 -Wall -Wextra -pthread \
-    server_functions.c hash_table.c route_handler.c threadPool.c \
+    server_functions.c hash_table.c route_handler.c \
     -o ckvs
 ```
 
@@ -153,37 +163,38 @@ curl "http://localhost:8080/get?key=name"
 
 ## Configuration
 
-All tuneable constants are centralised in `config.h`:
+All tuneable constants are in `config.h`:
 
 | Macro | Default | Description |
 |---|---|---|
 | `PORT` | `8080` | TCP port the server binds to |
-| `BUFFER_SIZE` | `1024` | Read/write buffer per request |
-| `URL_BUFFER_SIZE` | `1024` | Max URL length |
-| `PARAM_KEY_SIZE` | `64` | Max query parameter key length |
-| `PARAM_VALUE_SIZE` | `1024` | Max query parameter value length |
+| `KEEPALIVE_TIMEOUT` | `5` | Seconds of inactivity before a connection is closed |
+| `MAX_CLIENTS` | `16384` | Maximum simultaneous connections |
+| `MAX_EVENTS` | `4096` | Maximum events returned per `epoll_wait()` call |
+| `BUFFER_SIZE` | `1024` | Per-connection receive buffer size |
+| `URL_BUFFER_SIZE` | `1024` | Maximum URL length |
+| `PARAM_KEY_SIZE` | `64` | Maximum query parameter key length |
+| `PARAM_VALUE_SIZE` | `1024` | Maximum query parameter value length |
 | `RESPONSE_BUFFER_SIZE` | `1280` | Response body buffer |
-| `LISTEN_BACKLOG` | `1023` | `listen()` backlog queue depth |
-| `KEEPALIVE_TIMEOUT` | `5` | `SO_RCVTIMEO` in seconds |
-
-The thread count (default: **8**) is set at `pool_create()` call-site in `main()`.
+| `LISTEN_BACKLOG` | `65535` | `listen()` backlog queue depth |
 
 ---
 
 ## Shutdown & Persistence
 
-Sending `SIGINT` (Ctrl+C) triggers a clean shutdown sequence:
+Sending `SIGINT` (Ctrl+C) triggers a clean shutdown:
 
-1. The signal handler clears `keep_running`.
-2. `server_loop()` exits the `accept()` loop and calls `pool_destroy()`, which drains all pending tasks and joins worker threads.
-3. The listening socket is closed.
-4. `ht_destroy()` is called; if a save path was provided, the entire table is serialised to disk before memory is freed.
+1. The signal handler clears `keep_running` using only async-signal-safe calls.
+2. `server_loop()` exits the `epoll_wait()` loop.
+3. The live-client list is walked and every open connection is closed.
+4. The epoll instance and listening socket are closed.
+5. `ht_destroy()` is called; if a save path was provided, the entire table is serialised to disk before memory is freed.
 
 ---
 
 ## Limitations & Known Issues
 
 - All three endpoints use the GET method; a production implementation would use POST/PUT/DELETE as appropriate.
-- The `is_sanitized()` check rejects binary values; values are stored as NUL-terminated strings, so null bytes inside values are silently truncated by `strlen`.
+- `is_sanitized()` rejects binary values — keys and values are treated as printable strings.
 - No TLS, no authentication, no rate limiting.
-- The thread count is compile-time fixed in `main()`; consider exposing it as a CLI argument.
+- Single-threaded: one core is used. Scaling to multiple cores would require `SO_REUSEPORT` with multiple processes or a thread pool with careful lock partitioning on the hash table.

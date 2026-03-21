@@ -37,7 +37,7 @@ static size_t next_prime(size_t n);
  * Serialises a single entry to an already-open binary file. Called internally
  * by ht_destroy() for each entry. Both entryToSave and file pointer must not be NULL.
  */
-static void save_data_on_file(Entry *entryToSave, FILE *f);
+static inline void save_data_on_file(Entry *entryToSave, FILE *f);
 
 /**
  * Generates a random seed by reading it from /dev/urandom,
@@ -206,7 +206,7 @@ void ht_destroy(Hash_Table *table, const char *persistenceFilePath) {
     free(table);
 }
 
-static void save_data_on_file(Entry *entryToSave, FILE *f) {
+static inline void save_data_on_file(Entry *entryToSave, FILE *f) {
     fwrite(&entryToSave->keySize, sizeof(size_t), 1, f);
     fwrite(entryToSave->key, entryToSave->keySize, 1, f);
     fwrite(&entryToSave->size, sizeof(size_t), 1, f);

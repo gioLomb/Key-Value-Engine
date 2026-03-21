@@ -222,6 +222,7 @@ static int setup_client(ServerCtx sctx, int clientFd,
         }
     }
 
+    //add to head
     ctx->next = *head;
     ctx->prev = NULL;
     if (*head) (*head)->prev = ctx;
@@ -259,8 +260,7 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx,
                                 ClientCtx **head, int *active_clients) {
     // consume the expiration counter so the fd does not re-fire immediately
     uint64_t expirations;
-    if (read(ctx->timer_ev.fd, &expirations, sizeof(expirations)) == -1 &&
-        errno != EAGAIN)
+    if (read(ctx->timer_ev.fd, &expirations, sizeof(expirations)) == -1 && errno != EAGAIN)
         perror("timerfd read failed");
 
     close_client(epoll_fd, ctx, head, active_clients);
@@ -372,7 +372,7 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
 
 void server_loop(ServerCtx sctx, Hash_Table *db) {
     struct epoll_event events[MAX_EVENTS];
-    ClientCtx *head          = NULL;
+    ClientCtx *head = NULL;
     int        active_clients = 0;
 
     while (keep_running) {
