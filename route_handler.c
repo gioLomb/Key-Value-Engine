@@ -148,33 +148,80 @@ int handler_delete(Hash_Table* table, const char* url, char* responseBuffer){
     }  
 }
 
-static void get_query_param(const char *url,const char* paramName,char* bufferDest,size_t maxLen){
-    char *start = strstr(url,paramName);
-    bufferDest[0] = '\0';
-    if(!start) return;
+static int hex_to_int(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
 
-    //get param value
-    start+=strlen(paramName);
-    char *end = strpbrk(start,"& ");
-    size_t len = end ? (size_t)(end-start) : strlen(start);
+static int hex_to_int(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
 
-    if(len>=maxLen) return;
-    memcpy(bufferDest,start,len);
-    bufferDest[len] = '\0';
+static void get_query_param(const char *url, const char *paramName, char *destBuffer, size_t maxLen) {
+    if (!url || !paramName || !destBuffer || maxLen == 0) return;
+    destBuffer[0] = '\0';
+
+    //jump to ?
+    const char *ptr = strchr(url, '?');
+    if (!ptr) return;
+    ptr++; 
+
+    size_t paramLen = strlen(paramName);
+    const char *found = NULL;
+
+    // find the param key
+    const char *curr = ptr;
+    while ((found = strstr(curr, paramName)) != NULL) {
+        //validate candidate key found
+        if (found == ptr || *(found - 1) == '&') {
+            ptr = found + paramLen; 
+            break; 
+        }
+        curr = found + 1;
+        found = NULL;
+    }
+
+    if (!found) return;
+
+    size_t copied = 0;
+    while (*ptr && *ptr != '&' && *ptr != ' ' && copied < (maxLen - 1)) {
+        //decode hex bytes
+        if (*ptr == '%' && isxdigit(ptr[1]) && isxdigit(ptr[2])) {
+            int hi = hex_to_int(ptr[1]);
+            int lo = hex_to_int(ptr[2]);
+            
+            //(hi * 16) + lo
+            destBuffer[copied++] = (char)((hi << 4) | lo);
+            ptr += 3; 
+        } else {
+            if (*ptr == '+') destBuffer[copied++] = ' ';
+            else destBuffer[copied++] = *ptr;
+            ptr++;
+        }
+    }
+    destBuffer[copied] = '\0';
 }
 
 static void extract_url(char *firstLineRequest,char *dest,size_t maxLen){
     dest[0] = '\0';
-    char *start = strchr(firstLineRequest,'/');
-    if(!start) return;
+    
+    char *ptr = firstLineRequest;
+    
+    //jump to the first space
+    while(*ptr && *ptr != ' ') ptr++;
 
-    //find the space before HTTP/x.x
-    char *end = strchr(start,' ');
-    if(!end) return;
+    //ignores multiple spaces
+    while(*ptr && *ptr == ' ') ptr++;
 
-    size_t len = (size_t)(end-start);
-    if(len >= maxLen) return;
-
-    memcpy(dest,start,len);
-    dest[(size_t)(end-start)] = '\0';
+    //copy effective url
+    size_t copied = 0;
+    while (*ptr && *ptr != ' ' && *ptr != '\r' && *ptr != '\n' && copied < (maxLen - 1)) {
+        dest[copied++] = *ptr++;
+    }
+    dest[copied] = 0;
 }
