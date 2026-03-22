@@ -88,17 +88,12 @@ int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
 }
 
 static int is_sanitized(const char *input) {
+    if (!input) return 0;
+    
     for (const char *p = input; *p; p++) {
-        char c;
-        if (*p == '%' && isxdigit((unsigned char)*(p+1)) && isxdigit((unsigned char)*(p+2))) {
-            //url decoding
-            char hex[3] = { *(p+1), *(p+2), '\0' };
-            c = (char)strtol(hex, NULL, 16);
-            p += 2; 
-        } else {
-            c = *p;
+        if (!isprint((unsigned char)*p)) {
+            return 0;
         }
-        if (!isprint((unsigned char)c)) return 0;
     }
     return 1;
 }
