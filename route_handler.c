@@ -49,8 +49,11 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
     // iterate over the static routes array
+    
     for(size_t i = 0;i<(sizeof(routes)/sizeof(routes[0]));i++){
-        if(strncmp(url,routes[i].path,strlen(routes[i].path))== 0){
+        size_t reqPathLen = (size_t)(strchr(url,'?')-url);
+        size_t effectivePathLen = reqPathLen >= strlen(routes[i].path) ? reqPathLen : strlen(routes[i].path);
+        if(strncmp(url,routes[i].path,effectivePathLen)== 0){
             return routes[i].handler(db,url,responseBuffer);
         }
     }
@@ -148,12 +151,6 @@ static inline int hex_to_int(char c) {
     return (c & 0xF) + (is_digit ^ 1) * 9;
 }
 
-static int hex_to_int(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
 
 static void get_query_param(const char *url, const char *paramName, char *destBuffer, size_t maxLen) {
     if (!url || !paramName || !destBuffer || maxLen == 0) return;

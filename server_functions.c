@@ -41,9 +41,9 @@ static int make_timerfd(void);
 
 /**
  * Re-arms ctx->timer_ev.fd to KEEPALIVE_TIMEOUT seconds from now.
- * Does nothing if timer_ev.fd is -1.
+ * Does nothing if timer_ev.fd is -1.It returns 0 on success, -1 otherwise.
  */
-static void reset_timer(ClientCtx *ctx);
+static int reset_timer(ClientCtx *ctx);
 
 /**
  * Unlinks ctx from the live-client list, deregisters and closes both fds,
@@ -102,6 +102,9 @@ void config_signal_context(void) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
+
+    //avoid crash due to write on a closed socket
+    signal(SIGPIPE, SIG_IGN);
 }
 
 void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
@@ -147,10 +150,14 @@ static int make_timerfd(void) {
     return tfd;
 }
 
-static void reset_timer(ClientCtx *ctx) {
-    if (ctx->timer_ev.fd == -1) return;
+static int reset_timer(ClientCtx *ctx) {
+    if (ctx->timer_ev.fd == -1) return 0; // Nessun timer, nessun problema
     struct itimerspec ts = { .it_interval = {0,0}, .it_value = {KEEPALIVE_TIMEOUT,0} };
-    timerfd_settime(ctx->timer_ev.fd, 0, &ts, NULL);
+    if (timerfd_settime(ctx->timer_ev.fd, 0, &ts, NULL) == -1) {
+        perror("timerfd_settime failed");
+        return -1;
+    }
+    return 0;
 }
 
 static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients) {    
@@ -203,6 +210,7 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     struct epoll_event cev = { .events = EPOLLIN, .data.ptr = &ctx->sock_ev };
     if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, clientFd, &cev) == -1) {
         perror("epoll_ctl clientFd failed");
+        close(clientFd);
         goto fail;
     }
 
@@ -224,6 +232,7 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     return 1;
 
 fail:
+    if (clientFd != -1) close(clientFd); 
     if (tfd != -1) close(tfd);
     free(ctx);
     return 0;
@@ -273,16 +282,17 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
             if (memmem(ctx->buffer, totalRead, "\r\n\r\n", 4)) break;
         } else if (nBytes == 0) {
             // peer closed the connection
-            close_client(epoll_fd, ctx, head, active_clients);
-            return 0;
+            goto close_connection;
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                if (totalRead == 0) { reset_timer(ctx); return 1; }
+                if (totalRead == 0) { 
+                    if(reset_timer(ctx) == -1) goto close_connection; 
+                    return 1; 
+                }
                 break;
             }
             perror("read failed");
-            close_client(epoll_fd, ctx, head, active_clients);
-            return 0;
+            goto close_connection;
         }
     }
 
@@ -291,12 +301,13 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
     send_response(ctx->sock_ev.fd, statusCode, responseBuffer, keepAlive);
 
     if (keepAlive) {
-        reset_timer(ctx);
+        if(reset_timer(ctx) == -1) goto close_connection; 
         return 1;
     }
 
-    close_client(epoll_fd, ctx, head, active_clients);
-    return 0;
+    close_connection:
+        close_client(epoll_fd, ctx, head, active_clients);
+        return 0;
 }
 
 static ServerCtx start_server(int port) {
