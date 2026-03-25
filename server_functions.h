@@ -22,6 +22,8 @@
 #define SERVER_FUNCTIONS_H
 
 #include "config.h"
+#include "client_pool.h"
+#include "hash_table.h"
 
 /* set to 0 by the SIGINT handler; read by server_loop() to exit cleanly */
 extern volatile sig_atomic_t keep_running;
@@ -45,27 +47,28 @@ typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
  * On a fired event the handler casts data.ptr to ConnectionEvent*, reads
  * type to decide the action, and follows parent to reach the owning context.
  */
-typedef struct ConnectionEvent {
-    int                   fd;
-    EvType                type;
-    struct ClientCtx     *parent;
-} ConnectionEvent;
+// typedef struct ConnectionEvent {
+//     int                   fd;
+//     EvType                type;
+//     struct ClientCtx     *parent;
+// } ConnectionEvent;
 
-/**
- * Per-connection context. sock_ev and timer_ev are embedded ConnectionEvent
- * structs registered directly in epoll; no separate allocation is needed.
- * buffer holds the incoming HTTP request for this connection.
- * next/prev link all live contexts in a doubly-linked list anchored in
- * server_loop(), enabling O(n) iteration during graceful shutdown without
- * any auxiliary data structure.
- */
-typedef struct ClientCtx {
-    ConnectionEvent  sock_ev;
-    ConnectionEvent  timer_ev;
-    char             buffer[BUFFER_SIZE];
-    struct ClientCtx *next;
-    struct ClientCtx *prev;
-} ClientCtx;
+// /**
+//  * Per-connection context. sock_ev and timer_ev are embedded ConnectionEvent
+//  * structs registered directly in epoll; no separate allocation is needed.
+//  * buffer holds the incoming HTTP request for this connection.
+//  * next/prev link all live contexts in a doubly-linked list anchored in
+//  * server_loop(), enabling O(n) iteration during graceful shutdown without
+//  * any auxiliary data structure.
+//  */
+// typedef struct ClientCtx {
+//     ConnectionEvent  sock_ev;
+//     ConnectionEvent  timer_ev;
+//     char             buffer[BUFFER_SIZE];
+//     struct ClientCtx *next;
+//     struct ClientCtx *prev;
+//     struct MemoryChunk *parent_chunk;
+// } ClientCtx;
 
 /**
  * djb2 hash function. Matches the hash_func signature required by ht_create().

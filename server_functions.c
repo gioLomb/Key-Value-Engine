@@ -1,5 +1,6 @@
-#include "hash_table.h"
+
 #include "server_functions.h"
+
 #include "route_handler.h"
 
 #include <sys/epoll.h>
@@ -175,7 +176,7 @@ static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *ac
         close(ctx->timer_ev.fd);
     }
 
-    free(ctx);
+    client_pool_free(ctx);
     (*active_clients)--;
 }
 
@@ -192,9 +193,9 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     int yes = 1;
     setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 
-    ctx = calloc(1, sizeof(ClientCtx));
+    ctx = client_pool_alloc(); 
     if (!ctx) {
-        fprintf(stderr, "calloc ClientCtx failed\n");
+        fprintf(stderr, "Pool exhausted or allocation failed\n");
         goto fail;
     }
 
@@ -418,6 +419,11 @@ int main(int argc, char **argv) {
     analyze_args(argc, argv, &idxLoad, &idxSave);
     config_signal_context();
 
+    if (client_pool_init() == -1) {
+        fprintf(stderr, "Critical: Could not initialize client pool\n");
+        return EXIT_FAILURE;
+    }
+
     Hash_Table *db = ht_create(16384, hash_key);
 
     if (idxLoad != -1 && ht_load(db, argv[idxLoad]))
@@ -427,6 +433,8 @@ int main(int argc, char **argv) {
 
     server_loop(start_server(PORT), db);
 
+    //clean
+    client_pool_destroy();
     ht_destroy(db, (idxSave != -1) ? argv[idxSave] : NULL);
     return 0;
 }
