@@ -176,7 +176,7 @@ static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *ac
         close(ctx->timer_ev.fd);
     }
 
-    client_pool_free(ctx);
+    client_pool_release(ctx);
     (*active_clients)--;
 }
 

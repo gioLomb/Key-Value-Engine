@@ -67,7 +67,7 @@ ClientCtx* client_pool_alloc(void) {
     return ctx;
 }
 
-void client_pool_free(ClientCtx *ctx) {
+void client_pool_release(ClientCtx *ctx) {
     if (!ctx) return;
     MemoryChunk *c = (MemoryChunk*)ctx->parent_chunk;
 
