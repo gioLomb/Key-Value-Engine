@@ -1,4 +1,4 @@
-# Key-Value Engine  --- TO BE UPDATED
+# Key-Value Engine
 
 A lightweight, high-performance in-memory key-value store exposed over HTTP, written in C. The server is built on a custom generic hash table and a **single-threaded, event-driven architecture** using Linux `epoll`.
 
@@ -22,8 +22,8 @@ Concurrency is handled entirely through non-blocking I/O: a single `epoll` event
    accept_connections()  handle_socket_event()  handle_timer_event()
             │                    │
      setup_client()       handle_request()
-                                 │
-                         ┌───────┴────────┐
+            │                    │
+    client_pool_alloc()  ┌───────┴────────┐
                          │  route_handler │
                          └───────┬────────┘
                                  │
@@ -42,6 +42,7 @@ All live `ClientCtx` nodes are linked in a doubly-linked list anchored in `serve
 |---|---|
 | `config.h` | Global constants and `#include` aggregation |
 | `hash_table.c/h` | Thread-safe generic hash table with chaining, auto-resize, and binary persistence |
+| `client_pool.c/h` | Slab allocator for `ClientCtx` objects; fixed-size chunks, O(1) alloc/release |
 | `route_handler.c/h` | HTTP request parsing and dispatch to `/get`, `/set`, `/delete` |
 | `server_functions.c/h` | epoll event loop, connection lifecycle, signal handling, `main()` |
 
@@ -53,6 +54,14 @@ All live `ClientCtx` nodes are linked in a doubly-linked list anchored in `serve
 - **Pluggable hash function** via function pointer; per-instance random seed from `/dev/urandom` to mitigate hash-flooding attacks
 - **Auto-resize** to the next prime ≥ 2× capacity when load factor reaches 1; existing entries are relinked using the cached hash, no recomputation
 - **Binary persistence**: `ht_destroy()` serialises all entries to file; `ht_load()` restores them on startup
+
+### Client Pool
+
+- **Slab allocation** — `ClientCtx` objects are stored in fixed-size `MemoryChunk` blocks of 64 slots each, allocated contiguously to minimise heap fragmentation under high connection rates
+- **O(1) alloc and release** — each chunk maintains a local free list threaded through `ClientCtx.next`; popping and pushing slots requires no global search
+- **O(1) chunk lookup on release** — every slot holds a `parent_chunk` back-pointer set at chunk creation and never mutated, so `client_pool_release()` locates the owning chunk without traversing the list
+- **Automatic shrink** — when a chunk's reference count drops to zero it is unlinked and freed immediately, keeping resident memory proportional to peak concurrency; the last chunk is always retained to avoid churn under low load
+- **Transparent to callers** — `setup_client()` calls `client_pool_alloc()` and `close_client()` calls `client_pool_release()`; the rest of the server is unaware of the underlying slab structure
 
 ### HTTP Interface
 
@@ -76,7 +85,7 @@ Each client gets a `CLOCK_MONOTONIC` timerfd armed to `KEEPALIVE_TIMEOUT` second
 
 ```bash
 gcc -O2 -Wall -Wextra -o kvengine \
-    server_functions.c hash_table.c route_handler.c \
+    server_functions.c hash_table.c route_handler.c client_pool.c \
     -lpthread
 ```
 
