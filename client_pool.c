@@ -55,7 +55,7 @@ ClientCtx* client_pool_alloc(void) {
         chunks_head = curr;
     }
 
-    // extract the clientCtx object from the chunk
+    // extract the ClientCtx object from the chunk
     ClientCtx *ctx = curr->local_free_list;
     curr->local_free_list = ctx->next; 
     curr->used_count++;

@@ -37,10 +37,31 @@ typedef struct ClientCtx {
     char buffer[BUFFER_SIZE]; 
 } ClientCtx;
 
-//API
+/**
+ * create the first chunk head.
+ * Return 0 for success, -1 otherwise.
+ */
 int  client_pool_init(void);
+
+/**
+ * Looks for an unfull chunk to allocate a new ClientCtx;
+ * if all chunks are full, create a new chunk to hold a new client.
+ * The ClientCtx instance is extracted from the local free list of the chunk
+ * and returned. In case of chunk fail allocation returns NULL.
+ */
 ClientCtx* client_pool_alloc(void);
+
+/**
+ * delete the ClientCtx reference, putting it into the local list
+ * of the chunk (taken from the parent_chunk member).
+ * If the reference counting of the parent chunk is 0,
+ * it provides to shrink the chunk memory(unless the last one)
+ */
 void client_pool_release(ClientCtx *ctx);
+
+/**
+ * It frees every memory chunk starting from the head.
+ */
 void client_pool_destroy(void);
 
 #endif
