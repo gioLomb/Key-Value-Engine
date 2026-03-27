@@ -1,9 +1,27 @@
+/**
+ * This module implements a slab-style memory pool for ClientCtx objects.
+ * Memory is managed in fixed-size MemoryChunk blocks, each embedding
+ * CHUNK_SIZE ClientCtx slots contiguously to avoid per-connection heap
+ * fragmentation and reduce allocator pressure under high connection rates.
+ *
+ * Within each chunk, free slots are linked through a local free list
+ * (ClientCtx.next), making alloc and release O(1). Every slot stores a
+ * back-pointer to its owning chunk (parent_chunk), so client_pool_release()
+ * can locate the chunk in O(1) without any global search.
+ *
+ * Chunks are organised in a doubly-linked list anchored at chunks_head.
+ * When a chunk's used_count reaches zero and it is not the last remaining
+ * chunk, it is unlinked and freed immediately, keeping resident memory
+ * proportional to the peak concurrent client count. The last chunk is always
+ * retained to avoid repeated alloc/free cycles under low load.
+ */
 #ifndef CLIENT_H
 #define CLIENT_H
 
 #include "config.h"
 #include <sys/epoll.h>
 
+#define CHUNK_SIZE 64 
 
 struct MemoryChunk;
 
