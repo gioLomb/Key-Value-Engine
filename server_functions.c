@@ -356,7 +356,7 @@ static ServerCtx start_server(int port) {
 }
 
 void send_response(int socketFd, int statusCode, char *responseMsg, int keepAlive) {
-    static char fullResponse[256 + RESPONSE_BUFFER_SIZE];
+    char fullResponse[256 + RESPONSE_BUFFER_SIZE];
     char *statusMsg;
     
     switch (statusCode) {

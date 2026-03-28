@@ -39,8 +39,9 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     *keepAlive = (strstr(requestBuffer, "Connection: keep-alive") != NULL) ? 1 : 0;
 
     //define thread local memory for thread-safety strtok
+    //operate on localCopy, not requestBuffer, to avoid corrupting ctx->buffer
     char* saverPtr;
-    char *firstLine = strtok_r(requestBuffer, "\n",&saverPtr);
+    char *firstLine = strtok_r(localCopy, "\n",&saverPtr);
 
     if(!firstLine) {
         snprintf(responseBuffer, BUFFER_SIZE, "Bad Request\n");
