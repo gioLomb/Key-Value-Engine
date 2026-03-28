@@ -49,10 +49,10 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
     // iterate over the static routes array
-    
     for(size_t i = 0;i<(sizeof(routes)/sizeof(routes[0]));i++){
         size_t reqPathLen = (size_t)(strchr(url,'?')-url);
         size_t effectivePathLen = reqPathLen >= strlen(routes[i].path) ? reqPathLen : strlen(routes[i].path);
+        
         if(strncmp(url,routes[i].path,effectivePathLen)== 0){
             return routes[i].handler(db,url,responseBuffer);
         }

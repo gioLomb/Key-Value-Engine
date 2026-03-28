@@ -1,4 +1,3 @@
-
 #include "server_functions.h"
 
 #include "route_handler.h"
@@ -84,16 +83,27 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, Cli
 
 
 unsigned long hash_key(const void *key, size_t keySize, unsigned long seed) {
-    const unsigned char *bytes = (const unsigned char *)key;
-    unsigned long hash = seed;
-    for (size_t i = 0; i < keySize; i++)
-        hash = ((hash << 5) + hash) + bytes[i];
-    return hash;
+    const unsigned char *data = (const unsigned char *)key;
+    unsigned long h = seed;
+
+    // Byte-by-byte processing with MurmurHash magic constant
+    for (size_t i = 0; i < keySize; i++) {
+        h ^= data[i];
+        h *= 0x5bd1e995; // 32-bit MurmurHash2 constant for bit dispersion
+        h ^= h >> 15;
+    }
+
+    // Finalization Mix: forces all bits of the hash to avalanche
+    // to ensure that even similar keys result in very different indices.
+    h ^= h >> 13;
+    h *= 0x85ebca6b;
+    h ^= h >> 16;
+
+    return h;
 }
 
 static void handle_sigint(int sig) {
     (void)sig;
-    if (write(STDOUT_FILENO, "ctrl+c\n", 7) < 0) { /* nothing to do in signal handler */ }
     keep_running = 0;
 }
 
@@ -152,7 +162,7 @@ static int make_timerfd(void) {
 }
 
 static int reset_timer(ClientCtx *ctx) {
-    if (ctx->timer_ev.fd == -1) return 0; // Nessun timer, nessun problema
+    if (ctx->timer_ev.fd == -1) return 0; 
     struct itimerspec ts = { .it_interval = {0,0}, .it_value = {KEEPALIVE_TIMEOUT,0} };
     if (timerfd_settime(ctx->timer_ev.fd, 0, &ts, NULL) == -1) {
         perror("timerfd_settime failed");
@@ -201,8 +211,7 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
 
     tfd = make_timerfd();
     if (tfd == -1)
-        fprintf(stderr, "warn: make_timerfd failed (%s) - no keepalive timer\n",
-                strerror(errno));
+        fprintf(stderr, "warn: make_timerfd failed (%s) - no keepalive timer\n",strerror(errno));
 
     ctx->sock_ev = (ConnectionEvent){ .fd = clientFd, .type = TYPE_SOCKET, .parent = ctx };
     ctx->timer_ev = (ConnectionEvent){ .fd = tfd, .type = TYPE_TIMER, .parent = ctx };
@@ -211,7 +220,6 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     struct epoll_event cev = { .events = EPOLLIN, .data.ptr = &ctx->sock_ev };
     if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, clientFd, &cev) == -1) {
         perror("epoll_ctl clientFd failed");
-        close(clientFd);
         goto fail;
     }
 
@@ -233,9 +241,9 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     return 1;
 
 fail:
-    if (clientFd != -1) close(clientFd); 
+    if (clientFd != -1) close(clientFd);
     if (tfd != -1) close(tfd);
-    free(ctx);
+    if (ctx) client_pool_release(ctx);
     return 0;
 }
 
@@ -268,8 +276,7 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, i
     close_client(epoll_fd, ctx, head, active_clients);
 }
 
-static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
-                                ClientCtx **head, int *active_clients) {
+static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,ClientCtx **head, int *active_clients) {
     char   responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
     size_t totalRead = 0;
     int    keepAlive = 0;
@@ -351,6 +358,7 @@ static ServerCtx start_server(int port) {
 void send_response(int socketFd, int statusCode, char *responseMsg, int keepAlive) {
     static char fullResponse[256 + RESPONSE_BUFFER_SIZE];
     char *statusMsg;
+    
     switch (statusCode) {
         case 200: statusMsg = "OK"; break;
         case 400: statusMsg = "Bad Request"; break;

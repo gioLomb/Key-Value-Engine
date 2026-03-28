@@ -42,7 +42,10 @@ typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
 
 
 /**
- * djb2 hash function. Matches the hash_func signature required by ht_create().
+ * Demonstrative high-performance hash function based on bit-mixing (MurmurHash3 finalizer style).
+ * This function provides excellent "avalanche effect," meaning a small change 
+ * in the key bits causes a significant change in the hash output. This ensures 
+ * uniform distribution across the Hash Table buckets.
  */
 unsigned long hash_key(const void *key, size_t keySize, unsigned long seed);
 

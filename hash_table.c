@@ -211,35 +211,45 @@ static inline void save_data_on_file(Entry *entryToSave, FILE *f) {
     fwrite(entryToSave->value, entryToSave->size, 1, f);
 }
 
-int ht_load(Hash_Table *table, const char *persistenceFilePath) {
-    if (!persistenceFilePath) return 0;
-    FILE *f = fopen(persistenceFilePath, "rb");
-    if (!f) return 0; //starting from empty table
+int ht_load(Hash_Table *table, const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
 
-    char *key = NULL;
-    void *val = NULL;
-    size_t keyLen, valSize;
-
-    // Each iteration reads and sets one complete record; any partial read jumps to cleanup
+    size_t keyLen, valLen;
+    /* Read in the same order save_data_on_file writes:
+       keySize -> key -> valueSize -> value */
     while (fread(&keyLen, sizeof(size_t), 1, f) == 1) {
-        key = malloc(keyLen);
-        if (!key || fread(key, keyLen, 1, f) != 1) goto error;
 
-        if (fread(&valSize, sizeof(size_t), 1, f) != 1) goto error;
-        val = malloc(valSize);
-        if (!val || fread(val, valSize, 1, f) != 1) goto error;
+        if (keyLen > MAX_KEY_LEN) {
+            fprintf(stderr, "Error: Malformed database file (key too large)\n");
+            break;
+        }
 
-        ht_set(table, key, keyLen, val, valSize);
+        char *key = malloc(keyLen);
+        if (!key) break;
+
+        if (fread(key, 1, keyLen, f) != keyLen) { free(key); break; }
+
+        if (fread(&valLen, sizeof(size_t), 1, f) != 1) { free(key); break; }
+
+        if (valLen > MAX_VALUE_SIZE) {
+            fprintf(stderr, "Error: Malformed database file (value too large)\n");
+            free(key);
+            break;
+        }
+
+        char *val = malloc(valLen);
+        if (!val) { free(key); break; }
+
+        if (fread(val, 1, valLen, f) == valLen)
+            ht_set(table, key, keyLen, val, valLen);
+
         free(key);
         free(val);
-        key = val = NULL;
     }
 
-    error:
-        free(key);
-        free(val);
-        fclose(f);
-        return 1;
+    fclose(f);
+    return 1;
 }
 
 
