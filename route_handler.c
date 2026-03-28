@@ -49,13 +49,16 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     }
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
+    // isolate path component (stop at '?' or end of string)
+    const char *qmark = strchr(url, '?');
+    size_t pathLen = qmark ? (size_t)(qmark - url) : strlen(url);
+
     // iterate over the static routes array
-    for(size_t i = 0;i<(sizeof(routes)/sizeof(routes[0]));i++){
-        size_t reqPathLen = (size_t)(strchr(url,'?')-url);
-        size_t effectivePathLen = reqPathLen >= strlen(routes[i].path) ? reqPathLen : strlen(routes[i].path);
-        
-        if(strncmp(url,routes[i].path,effectivePathLen)== 0){
-            return routes[i].handler(db,url,responseBuffer);
+    for(size_t i = 0; i < (sizeof(routes)/sizeof(routes[0])); i++){
+        size_t routeLen = strlen(routes[i].path);
+        // exact path match: lengths must be equal before comparing bytes
+        if(pathLen == routeLen && strncmp(url, routes[i].path, routeLen) == 0){
+            return routes[i].handler(db, url, responseBuffer);
         }
     }
     
@@ -65,7 +68,7 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     return 404;
 }
 
-int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
+static int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
     char *value = calloc(1, PARAM_VALUE_SIZE);
     if (!value) return 500;
@@ -102,7 +105,7 @@ static int is_sanitized(const char *input) {
     return 1;
 }
 
-int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
+static int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
     char val[PARAM_VALUE_SIZE] = {0};
 
@@ -126,7 +129,7 @@ int handler_set(Hash_Table* table, const char* url, char* responseBuffer){
 
 }
 
-int handler_delete(Hash_Table* table, const char* url, char* responseBuffer){
+static int handler_delete(Hash_Table* table, const char* url, char* responseBuffer){
     char key[PARAM_KEY_SIZE] = {0};
 
     get_query_param(url, "key=", key, PARAM_KEY_SIZE);

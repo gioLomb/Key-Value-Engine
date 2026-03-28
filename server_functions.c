@@ -262,8 +262,9 @@ static void accept_connections(ServerCtx sctx, ClientCtx **head, int *active_cli
             continue;
         }
 
-        if (!setup_client(sctx, clientFd, head, active_clients))
-            close(clientFd);
+        if (!setup_client(sctx, clientFd, head, active_clients)) {
+            /* clientFd already closed inside setup_client's fail path */
+        }
     }
 }
 
@@ -280,7 +281,11 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,Clie
     char   responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
     size_t totalRead = 0;
     int    keepAlive = 0;
-    
+
+    // zero the buffer so stale bytes from a previous keep-alive request
+    // cannot bleed into the new parse if this request is shorter
+    memset(ctx->buffer, 0, BUFFER_SIZE);
+
     //get bytes from client (until EAGAIN)
     while (totalRead < BUFFER_SIZE - 1) {
         ssize_t nBytes = read(ctx->sock_ev.fd, ctx->buffer + totalRead, BUFFER_SIZE - 1 - totalRead);

@@ -74,6 +74,7 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction) {
 }
 
 int ht_set(Hash_Table *table, void *key, size_t keySize, void *value, size_t valueSize) {
+    if (!table || !key) return 0;
     pthread_rwlock_wrlock(&table->lock);
 
     unsigned long h = table->hashFunction(key,keySize, table->seed);
@@ -120,6 +121,7 @@ error:
 }
 
 int ht_get(Hash_Table *table, void *key, size_t keySize, void *destBuffer, size_t destSize) {
+    if (!table || !key || !destBuffer) return 0;
     pthread_rwlock_rdlock(&table->lock);
 
     unsigned int index = table->hashFunction(key,keySize, table->seed) % table->capacity;
@@ -279,8 +281,9 @@ static Entry *create_entry(void *key, size_t keySize, void *value, size_t valueS
 
     error:
         free(newEntry->key);
+        free(newEntry->value);
         free(newEntry);
-        return NULL; 
+        return NULL;
 }
 
 static int ht_resize(Hash_Table *table) {
