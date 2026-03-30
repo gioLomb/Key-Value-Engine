@@ -7,6 +7,7 @@
 #include <fcntl.h>
 
 volatile sig_atomic_t keep_running = 1;
+ServerStats stats = {0};
 
 
 /* STATIC FUNCTION PROTOTYPES */
@@ -238,6 +239,7 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     if (*head) (*head)->prev = ctx;
     *head = ctx;
     (*active_clients)++;
+    stats.total_connections++;
     return 1;
 
 fail:
@@ -311,6 +313,7 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,Clie
 
     ctx->buffer[totalRead] = '\0';
     int statusCode = handle_request(db, ctx->buffer, responseBuffer, &keepAlive);
+    stats.total_requests++;
     send_response(ctx->sock_ev.fd, statusCode, responseBuffer, keepAlive);
 
     if (keepAlive) {
@@ -401,6 +404,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db) {
     struct epoll_event events[MAX_EVENTS];
     ClientCtx *head = NULL;
     int active_clients = 0;
+    stats.active_clients_ptr = &active_clients;
 
     while (keep_running) {
         int nReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
@@ -439,6 +443,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db) {
 }
 
 int main(int argc, char **argv) {
+    stats.start_time = time(NULL);
     int idxLoad, idxSave;
     analyze_args(argc, argv, &idxLoad, &idxSave);
     config_signal_context();

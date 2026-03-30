@@ -38,6 +38,14 @@ typedef struct {
     int epoll_fd;
 } ServerCtx;
 
+typedef struct {
+    int *active_clients_ptr;
+    unsigned long total_requests;
+    unsigned long total_connections;
+    time_t        start_time;
+} ServerStats;
+extern ServerStats stats;
+
 typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
 
 

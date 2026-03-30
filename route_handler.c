@@ -1,5 +1,5 @@
 #include "route_handler.h"
-
+#include "server_functions.h"
 /*PRIVATE FUNCTIONS DECLARATIONS*/
 
 /* Returns 1 if the input contains only printable characters, decoding
@@ -25,12 +25,14 @@ static void get_query_param(const char *url,const char* paramName,char* destBuff
 static int handler_get(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_set(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_delete(Hash_Table *table, const char *url, char *responseBuffer);
+static int handler_stats(Hash_Table *table, const char *url, char *responseBuffer);
 
 /* ROUTES */
 static Route routes[]={
     {"/get",handler_get},
     {"/set",handler_set},
     {"/delete",handler_delete},
+    {"/stats",handler_stats},
 };
 
 /*DEFINITIONS*/
@@ -101,6 +103,23 @@ static int value_escaping(const char *src, char *dest, size_t destSize) {
     }
     dest[i] = '\0';
     return 1;
+}
+
+static int handler_stats(Hash_Table *table, const char *url, char *responseBuffer) {
+    (void)url; //ignore param
+    time_t uptime = time(NULL) - stats.start_time;
+
+    snprintf(responseBuffer, RESPONSE_BUFFER_SIZE,
+        "{"
+        "\"uptime_seconds\":%ld,"
+        "\"total_requests\":%lu,"
+        "\"total_connections\":%lu,"
+        "\"total_keys\":%zu"
+        "}\n",
+        //stats taken without lock
+        (long)uptime, stats.total_requests, stats.total_connections,table->size
+    );
+    return 200;
 }
 
 static int handler_get(Hash_Table *table, const char *url, char *responseBuffer) {
