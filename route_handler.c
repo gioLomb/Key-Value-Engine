@@ -6,6 +6,12 @@
    percent-encoded sequences before checking. Returns 0 otherwise.*/
 static int is_sanitized(const char *input);
 
+/**
+ * Escape some special chars in the value to avoid injection.
+ * It returns 0 if the escaped value is longer than dest size, 1 otherwise.
+ */
+static int value_escaping(const char *src, char *dest, size_t destSize);
+
 /* Extracts the URL path and query string from the first line of an HTTP request
    into dest. Writes an empty string if the line is malformed or the
    result would exceed maxLen. */
@@ -63,35 +69,64 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
     }
     
     //if comparation turned out bad
-    printf("Bad routes url: %s",url);
+    //printf("Bad routes url: %s",url);
     snprintf(responseBuffer, BUFFER_SIZE, "route does not exist\n");
     return 404;
 }
 
-static int handler_get(Hash_Table* table, const char* url, char* responseBuffer){
-    char key[PARAM_KEY_SIZE] = {0};
-    char *value = calloc(1, PARAM_VALUE_SIZE);
-    if (!value) return 500;
-    int statusCode;
-    
-    get_query_param(url, "key=", key, PARAM_KEY_SIZE);
-    if(key[0]) {
-        
-        if(ht_get(table, key,strlen(key)+1,value,PARAM_VALUE_SIZE)) {
-            snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "{\"value\":\"%s\"}\n", value);
-            statusCode = 200;
-        } else {
-            snprintf(responseBuffer, BUFFER_SIZE, "key not exists\n");
-            statusCode = 404;
-        }
 
-    } else {
-        snprintf(responseBuffer, BUFFER_SIZE, "missing key\n");
-        statusCode = 400;;
+static int value_escaping(const char *src, char *dest, size_t destSize) {
+    size_t i = 0;
+    while (*src) {
+        char c = *src++;
+        // every escaped char is max 2 bytes
+        if (i + 2 >= destSize) return 0;
+
+        switch (c) {
+            case '"':  dest[i++] = '\\'; dest[i++] = '"';  break;
+            case '\\': dest[i++] = '\\'; dest[i++] = '\\'; break;
+            case '\n': dest[i++] = '\\'; dest[i++] = 'n';  break;
+            case '\r': dest[i++] = '\\'; dest[i++] = 'r';  break;
+            case '\t': dest[i++] = '\\'; dest[i++] = 't';  break;
+            default:
+                // ctrl chars mapped to \uXXXX
+                if ((unsigned char)c < 0x20) {
+                    if (i + 6 >= destSize) return 0;
+                    i += snprintf(dest + i, destSize - i, "\\u%04x", (unsigned char)c);
+                } else {
+                    dest[i++] = c;
+                }
+                break;
+        }
+    }
+    dest[i] = '\0';
+    return 1;
+}
+
+static int handler_get(Hash_Table *table, const char *url, char *responseBuffer) {
+    char key[PARAM_KEY_SIZE]     = {0};
+    char value[PARAM_VALUE_SIZE] = {0};    
+    char escaped[PARAM_VALUE_SIZE * 2];    
+
+    get_query_param(url, "key=", key, PARAM_KEY_SIZE);
+
+    if (!key[0]) {
+        snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "missing key\n");
+        return 400;
     }
 
-    free(value);
-    return statusCode;
+    if (!ht_get(table, key, strlen(key) + 1, value, PARAM_VALUE_SIZE)) {
+        snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "key not exists\n");
+        return 404;
+    }
+
+    if (!value_escaping(value, escaped, sizeof(escaped))) {
+        snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "value too large to encode\n");
+        return 500;
+    }
+
+    snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "{\"value\":\"%s\"}\n", escaped);
+    return 200;
 }
 
 static int is_sanitized(const char *input) {
