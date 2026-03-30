@@ -363,26 +363,37 @@ static ServerCtx start_server(int port) {
 void send_response(int socketFd, int statusCode, char *responseMsg, int keepAlive) {
     char fullResponse[256 + RESPONSE_BUFFER_SIZE];
     char *statusMsg;
-    
+
     switch (statusCode) {
-        case 200: statusMsg = "OK"; break;
+        case 200: statusMsg = "OK";          break;
         case 400: statusMsg = "Bad Request"; break;
-        case 404: statusMsg = "Not Found"; break;
-        default:  statusMsg = "Error"; break;
+        case 404: statusMsg = "Not Found";   break;
+        default:  statusMsg = "Internal Server Error"; break;
     }
 
-    //make response string
     int wlen = snprintf(fullResponse, sizeof(fullResponse),
-        "HTTP/1.1 %d %s\r\nContent-Length: %zu\r\nConnection: %s\r\n\r\n%s",
-        statusCode, statusMsg, strlen(responseMsg),
+        "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: %s\r\n\r\n%s",
+        statusCode, statusMsg,
+        (statusCode == 200 && responseMsg[0] == '{') ? "application/json" : "text/plain",
+        strlen(responseMsg),
         keepAlive ? "keep-alive\r\nKeep-Alive: timeout=5" : "close",
         responseMsg);
 
-    //write response
-    if (wlen > 0 && wlen < (int)sizeof(fullResponse)) {
-        ssize_t written = write(socketFd, fullResponse, wlen);
-        if (written < 0) perror("write failed");
-        else if ((size_t)written < (size_t)wlen) fprintf(stderr, "partial write\n");
+    if (wlen <= 0 || wlen >= (int)sizeof(fullResponse)) {
+        fprintf(stderr, "send_response: snprintf overflow\n");
+        return;
+    }
+
+    // ensure the entire response is sent
+    size_t total = 0;
+    while (total < (size_t)wlen) {
+        ssize_t n = write(socketFd, fullResponse + total, wlen - total);
+        if (n < 0) {
+            if (errno == EINTR) continue;   
+            if (errno != EPIPE && errno != ECONNRESET) perror("write failed");
+            return;                         
+        }
+        total += (size_t)n;
     }
 }
 
