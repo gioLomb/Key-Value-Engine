@@ -9,10 +9,7 @@
 volatile sig_atomic_t keep_running = 1;
 ServerStats stats = {0};
 
-
-
 /* STATIC FUNCTION PROTOTYPES */
-
 
 /**
  * SIGINT handler: writes a short message to stdout and clears keep_running
@@ -81,8 +78,20 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, i
 static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
                                 Hash_Table *rl_table, ClientCtx **head, int *active_clients);
 
+/**
+ * check_snapshot - Periodically triggers a database dump based on a timer.
+ * Checks the snapshot timerfd and, if expired, calls ht_snapshot to persist 
+ * the current hash table state to the specified path.
+ */
 static void check_snapshot(Hash_Table *db, const char *path,ServerCtx sctx);
+
+/**
+ * rate_limit_check - Implements a sliding window rate limiting algorithm.
+ * Tracks requests per IP in the rl_table; returns 1 if the request is 
+ * within the allowed RATE_LIMIT_RPS, 0 if the limit has been exceeded.
+ */
 static int rate_limit_check(Hash_Table *rl_table, const char *ip);
+
 /* DEFINITIONS */
 
 
@@ -124,8 +133,7 @@ void config_signal_context(void) {
 }
 
 void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
-    *idxLoad = -1;
-    *idxSave = -1;
+    *idxLoad = *idxSave = -1;
     if (argc > 5) {
         fprintf(stderr, "Usage:\n  %s <file>\n  %s -ls <file>\n  %s -l <file> -s <file>\n",
                 argv[0], argv[0], argv[0]);
@@ -199,14 +207,15 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     ClientCtx *ctx = NULL;
     int tfd = -1;
 
-    //set client socket's options
+    //async option
     if (set_nonblocking(clientFd) == -1) {
         perror("set_nonblocking failed");
         goto fail;
     }
 
+    //avoid Nagle's algorithm and latency
     int yes = 1;
-    setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+    setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)); 
 
     ctx = client_pool_alloc(); 
     if (!ctx) {
@@ -331,6 +340,7 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
         }
     }
 
+    //handle request and response
     ctx->buffer[totalRead] = '\0';
     int statusCode = handle_request(db, ctx->buffer, responseBuffer, &keepAlive);
     stats.total_requests++;
@@ -358,7 +368,10 @@ static ServerCtx start_server(int port) {
         perror("setsockopt failed"); exit(EXIT_FAILURE);
     }
 
-    if (set_nonblocking(ctx.server_fd) == -1) { perror("set_nonblocking failed"); exit(EXIT_FAILURE); }
+    if (set_nonblocking(ctx.server_fd) == -1) { 
+        perror("set_nonblocking failed");
+        exit(EXIT_FAILURE); 
+    }
 
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
@@ -427,7 +440,7 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     if ((now - stats.last_snapshot_time) >= 300 && stats.keys_modified_since_snapshot >= 100) {
 
         pid_t pid = fork();
-        //son manage the snapshot 
+        //son processmanage the snapshot 
         if (pid == 0) {
             //close the fds, otherwise they allow listening by son process
             close(sctx.server_fd);
@@ -436,11 +449,11 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
             ht_snapshot(db, path); //Note: ht_snapshot hold an unecessary rdlock
             exit(0);
         } else if (pid > 0) {
+
             unsigned long modified = stats.keys_modified_since_snapshot;
             stats.keys_modified_since_snapshot = 0;
             stats.last_snapshot_time = now;
-            printf("Snapshot started in child process %d (%lu keys modified)\n",
-                   pid, modified);
+            printf("Snapshot started in child process %d (%lu keys modified)\n", pid, modified);
         } else {
             perror("fork snapshot failed");
         }
@@ -452,15 +465,17 @@ static int rate_limit_check(Hash_Table *rl_table, const char *ip) {
 
     RateEntry entry = {0};
     time_t now = time(NULL);
-
+    //retrieve or initialize rate limiting data for this IP
     ht_get(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
 
+    //shift the window: if a second has passed, move current count to previous
     if (now - entry.window_start >= 1) {
         entry.count_prev   = entry.count_curr;
         entry.count_curr   = 0;
         entry.window_start = now;
     }
 
+    //weighted average of previous and current second
     double elapsed   = difftime(now, entry.window_start);
     double estimated = entry.count_prev * (1.0 - elapsed) + entry.count_curr;
 
@@ -469,9 +484,20 @@ static int rate_limit_check(Hash_Table *rl_table, const char *ip) {
         return 0;
     }
 
+    //save changes
     entry.count_curr++;
     ht_set(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
     return 1;
+}
+
+static inline void set_snapshot_timer(int epoll_fd,int *snap_tfd,int *snapshot_tfd_sentinel){
+    //set snapshot timer event
+    *snap_tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    struct itimerspec snap_ts = { .it_interval = {60, 0}, .it_value = {60, 0} }; //check every minute
+    timerfd_settime(*snap_tfd, 0, &snap_ts, NULL);
+
+    struct epoll_event snap_ev = { .events = EPOLLIN, .data.ptr = snapshot_tfd_sentinel };
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, *snap_tfd, &snap_ev);
 }
 
 void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const char *snap_path) {
@@ -482,25 +508,17 @@ void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const cha
 
     static int snapshot_tfd_sentinel = 0; 
     int snap_tfd = -1;
-    if(snap_path){
-    //set snapshot timer event
-    snap_tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-    struct itimerspec snap_ts = { .it_interval = {60, 0}, .it_value = {60, 0} }; //check every minute
-    timerfd_settime(snap_tfd, 0, &snap_ts, NULL);
-
-    struct epoll_event snap_ev = { .events = EPOLLIN, .data.ptr = &snapshot_tfd_sentinel };
-    epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, snap_tfd, &snap_ev);
-    }
+    if(snap_path) set_snapshot_timer(sctx.epoll_fd,&snap_tfd,&snapshot_tfd_sentinel);
 
     while (keep_running) {
-        int nReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
-        if (nReady == -1) {
+        int numEventReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
+        if (numEventReady == -1) {
             if (errno == EINTR) continue;
             perror("epoll_wait failed");
             break;
         }
 
-        for (int i = 0; i < nReady; i++) {
+        for (int i = 0; i < numEventReady; i++) {
             ConnectionEvent *ev = (ConnectionEvent *)events[i].data.ptr;
 
             // NULL sentinel for server event

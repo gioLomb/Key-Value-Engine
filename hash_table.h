@@ -20,8 +20,8 @@
 #include <time.h>
 #include <pthread.h>
 
-#define MAX_KEY_LEN    (1 << 12)   // 4 096 bytes
-#define MAX_VALUE_SIZE (1 << 20)   //1 MiB
+#define MAX_KEY_LEN    (1 << 12)  
+#define MAX_VALUE_SIZE (1 << 20) 
 #define HT_DEFAULT_CAPACITY 101
 
 typedef unsigned long (*hash_func)(const void *key, size_t keySize, unsigned long seed);
@@ -71,13 +71,18 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction);
 
 /**
  * Frees all resources held by the table: entries, rwlock, and the table struct itself.
- * If persistenceFilePath is available, every entry is written into that
- * before being freed, allowing the table to be reloaded later
- * with ht_load(). When persistenceFilePath is NULL the persistence
- * is not provided.
+ * If persistenceFilePath is available, it calls ht_snapshot to save data before clean up.
+ * When persistenceFilePath is NULL the persistence is not provided.
  */
 void ht_destroy(Hash_Table *table, const char *persistenceFilePath);
 
+/**
+ * creates a point-in-time binary dump of the hash table.
+ * Iterates through all buckets and linked chains to serialize every active 
+ * key-value pair into a compact binary file. This provides a "clean state" 
+ * recovery point, discarding historical operation logs. Uses a readers-writer 
+ * lock to ensure data consistency during the dump process.
+ */
 void ht_snapshot(Hash_Table *table, const char *path);
 
 /**

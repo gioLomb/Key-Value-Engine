@@ -38,6 +38,11 @@ typedef struct {
     int epoll_fd;
 } ServerCtx;
 
+/**
+ * Global metrics and state tracking for the server instance.
+ * Collects runtime telemetry including connection counters and uptime 
+ * to monitor server health and trigger scheduled snapshots.
+ */
 typedef struct {
     int *active_clients_ptr;
     unsigned long total_requests;
@@ -46,8 +51,12 @@ typedef struct {
     unsigned long keys_modified_since_snapshot;
     time_t        last_snapshot_time;
 } ServerStats;
-extern ServerStats stats;
 
+/**
+ * State container for the sliding window rate limiting algorithm.
+ * Stores request counters for the current and previous time windows to 
+ * calculate a weighted moving average, ensuring smooth traffic enforcement.
+ */
 typedef struct {
     unsigned long count_curr;
     unsigned long count_prev;
@@ -55,7 +64,7 @@ typedef struct {
 } RateEntry;
 
 typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
-
+extern ServerStats stats;
 
 /**
  * Demonstrative high-performance hash function based on bit-mixing (MurmurHash3 finalizer style).
@@ -79,14 +88,19 @@ void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave);
 void config_signal_context(void);
 
 /**
- * Runs the epoll event loop until keep_running is cleared by SIGINT.
- * On exit, iterates the live-client list to close every open connection,
- * then closes the epoll fd and the server fd.
+ * Core event loop managing I/O multiplexing and server maintenance.
+ * Runs epoll_wait() to dispatch socket events, handle keep-alive timers, and 
+ * process incoming HTTP requests with rate limiting (rl_table). Periodically 
+ * triggers database snapshots (snap_path) to ensure persistence. On SIGINT (Ctrl+c), 
+ * performs a graceful shutdown by closing all active clients and system fds.
  */
 void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const char *snap_path);
 
 /**
- * Formats a complete HTTP/1.1 response and writes it to socketFd.
+ * Formats and transmits a complete HTTP/1.1 response.
+ * Generates the HTTP header (status line, Content-Length, Connection type) 
+ * followed by the message body. Writes the formatted string directly to 
+ * socketFd. Handles also the 'Keep-Alive' flag.
  */
 void send_response(int socketFd, int statusCode, char *responseMsg, int keepAlive);
 

@@ -79,7 +79,8 @@ void ht_snapshot(Hash_Table *table, const char *path) {
     FILE *f = fopen(path, "wb");
     if (!f) { perror("ht_snapshot: fopen failed"); return; }
 
-    pthread_rwlock_rdlock(&table->lock);   // read lock: non blocca le GET
+    pthread_rwlock_rdlock(&table->lock); 
+    //save every entry
     for (size_t i = 0; i < table->capacity; i++) {
         Entry *current = table->pool[i];
         while (current) {
@@ -133,7 +134,7 @@ int ht_set(Hash_Table *table, void *key, size_t keySize, void *value, size_t val
     pthread_rwlock_unlock(&table->lock);
     return 1;
 
-error:
+    error:
     pthread_rwlock_unlock(&table->lock);
     return 0;
 }
@@ -230,6 +231,7 @@ int ht_load(Hash_Table *table, const char *path) {
     if (!f) return 0;
 
     size_t keyLen, valLen;
+    char* key;
     //read in the same order save_data_on_file writes
     while (fread(&keyLen, sizeof(size_t), 1, f) == 1) {
 
@@ -238,36 +240,34 @@ int ht_load(Hash_Table *table, const char *path) {
             break;
         }
 
-        char *key = malloc(keyLen);
+        key = malloc(keyLen);
         if (!key) break;
 
-        if (fread(key, 1, keyLen, f) != keyLen) { free(key); break; }
+        if (fread(key, 1, keyLen, f) != keyLen) goto clean;
 
-        if (fread(&valLen, sizeof(size_t), 1, f) != 1) { free(key); break; }
+        if (fread(&valLen, sizeof(size_t), 1, f) != 1) goto clean;
 
         if (valLen > MAX_VALUE_SIZE) {
             fprintf(stderr, "Error: Malformed database file (value too large)\n");
-            free(key);
-            break;
+            goto clean;
         }
 
         char *val = malloc(valLen);
-        if (!val) { free(key); break; }
+        if (!val) goto clean;
 
         if (fread(val, 1, valLen, f) == valLen)
             ht_set(table, key, keyLen, val, valLen);
 
         free(key);
         free(val);
+        key = NULL;
     }
 
+    clean:
+    free(key);
     fclose(f);
     return 1;
 }
-
-
-
-
 
 static Entry *create_entry(void *key, size_t keySize, void *value, size_t valueSize, unsigned long hash) {
     Entry *newEntry = malloc(sizeof(Entry));
