@@ -79,7 +79,7 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, i
  */
 static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, ClientCtx **head, int *active_clients);
 
-static void check_snapshot(Hash_Table *db, const char *path);
+static void check_snapshot(Hash_Table *db, const char *path,ServerCtx sctx);
 /* DEFINITIONS */
 
 
@@ -114,7 +114,8 @@ void config_signal_context(void) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
-
+    //avoid zombie son process
+    signal(SIGCHLD, SIG_IGN);
     //avoid crash due to write on a closed socket
     signal(SIGPIPE, SIG_IGN);
 }
@@ -400,17 +401,29 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
     }
 }
 
-static void check_snapshot(Hash_Table *db, const char *path) {
+static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     if (!path) return;
     time_t now = time(NULL);
-    //snap after 5 minutes and at least 100 updates
-    if ((now - stats.last_snapshot_time) >= 10 && stats.keys_modified_since_snapshot >= 100) { 
+    if ((now - stats.last_snapshot_time) >= 300 && stats.keys_modified_since_snapshot >= 100) {
 
-        unsigned long modified = stats.keys_modified_since_snapshot;
-        ht_snapshot(db, path);
-        stats.keys_modified_since_snapshot = 0;
-        stats.last_snapshot_time = now;
-        printf("Snapshot saved (%lu keys modified)\n", modified);  
+        pid_t pid = fork();
+        //son manage the snapshot 
+        if (pid == 0) {
+            //close the fds, otherwise they allow listening by son process
+            close(sctx.server_fd);
+            close(sctx.epoll_fd);
+
+            ht_snapshot(db, path);
+            exit(0);
+        } else if (pid > 0) {
+            unsigned long modified = stats.keys_modified_since_snapshot;
+            stats.keys_modified_since_snapshot = 0;
+            stats.last_snapshot_time = now;
+            printf("Snapshot started in child process %d (%lu keys modified)\n",
+                   pid, modified);
+        } else {
+            perror("fork snapshot failed");
+        }
     }
 }
 
@@ -453,7 +466,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path) {
             if (ev == (ConnectionEvent *)&snapshot_tfd_sentinel) {
                 uint64_t exp;
                 read(snap_tfd, &exp, sizeof(exp)); 
-                check_snapshot(db, snap_path);
+                check_snapshot(db, snap_path,sctx);
                 continue;
             }
 
