@@ -206,7 +206,6 @@ void ht_destroy(Hash_Table *table, const char *persistenceFilePath) {
         Entry *current = table->pool[i];
         while (current) {
             Entry *next = current->next;
-            //if (f) save_data_on_file(current, f);
             free(current->key);
             free(current->value);
             free(current);
@@ -214,7 +213,6 @@ void ht_destroy(Hash_Table *table, const char *persistenceFilePath) {
         }
     }
 
-    //if (f) fclose(f);
     free(table->pool);
     pthread_rwlock_destroy(&table->lock);
     free(table);
@@ -232,8 +230,7 @@ int ht_load(Hash_Table *table, const char *path) {
     if (!f) return 0;
 
     size_t keyLen, valLen;
-    /* Read in the same order save_data_on_file writes:
-       keySize -> key -> valueSize -> value */
+    //read in the same order save_data_on_file writes
     while (fread(&keyLen, sizeof(size_t), 1, f) == 1) {
 
         if (keyLen > MAX_KEY_LEN) {

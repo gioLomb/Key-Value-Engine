@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+
 
 /* MACROS */
 #define KEEPALIVE_TIMEOUT    5
@@ -30,5 +32,7 @@
 #define PARAM_VALUE_SIZE     (1<<10)
 #define RESPONSE_BUFFER_SIZE (PARAM_VALUE_SIZE * 2 + 256)
 #define LISTEN_BACKLOG       65535
+#define RATE_LIMIT_RPS 100
+#define DEBUG_RATE_LIMIT 1
 
 #endif

@@ -48,6 +48,12 @@ typedef struct {
 } ServerStats;
 extern ServerStats stats;
 
+typedef struct {
+    unsigned long count_curr;
+    unsigned long count_prev;
+    time_t        window_start;
+} RateEntry;
+
 typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
 
 
@@ -77,7 +83,7 @@ void config_signal_context(void);
  * On exit, iterates the live-client list to close every open connection,
  * then closes the epoll fd and the server fd.
  */
-void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path);
+void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const char *snap_path);
 
 /**
  * Formats a complete HTTP/1.1 response and writes it to socketFd.

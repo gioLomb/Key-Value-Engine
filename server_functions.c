@@ -78,9 +78,11 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, i
  * handle_request(), and sends the response. Resets the timer and returns 1
  * on keep-alive, calls close_client() and returns 0 otherwise.
  */
-static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, ClientCtx **head, int *active_clients);
+static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
+                                Hash_Table *rl_table, ClientCtx **head, int *active_clients);
 
 static void check_snapshot(Hash_Table *db, const char *path,ServerCtx sctx);
+static int rate_limit_check(Hash_Table *rl_table, const char *ip);
 /* DEFINITIONS */
 
 
@@ -281,7 +283,9 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, i
     close_client(epoll_fd, ctx, head, active_clients);
 }
 
-static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,ClientCtx **head, int *active_clients) {
+static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
+                                Hash_Table *rl_table, ClientCtx **head, int *active_clients) {
+
     char   responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
     size_t totalRead = 0;
     int    keepAlive = 0;
@@ -289,6 +293,20 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,Clie
     // zero the buffer so stale bytes from a previous keep-alive request
     // cannot bleed into the new parse if this request is shorter
     memset(ctx->buffer, 0, BUFFER_SIZE);
+
+    // get client IP
+    struct sockaddr_in peer;
+    socklen_t peerlen = sizeof(peer);
+    char ip[INET_ADDRSTRLEN] = {0};
+    if (getpeername(ctx->sock_ev.fd, (struct sockaddr *)&peer, &peerlen) == 0)
+        inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
+
+    // check rate limit
+    if (DEBUG_RATE_LIMIT && !rate_limit_check(rl_table, ip)) {
+        send_response(ctx->sock_ev.fd, 429, "Too Many Requests\n", 0);
+        close_client(epoll_fd, ctx, head, active_clients);
+        return 0;
+    }
 
     //get bytes from client (until EAGAIN)
     while (totalRead < BUFFER_SIZE - 1) {
@@ -373,6 +391,7 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
         case 200: statusMsg = "OK";          break;
         case 400: statusMsg = "Bad Request"; break;
         case 404: statusMsg = "Not Found";   break;
+        case 429: statusMsg = "Too Many Requests"; break;
         default:  statusMsg = "Internal Server Error"; break;
     }
 
@@ -428,7 +447,34 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     }
 }
 
-void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path) {
+static int rate_limit_check(Hash_Table *rl_table, const char *ip) {
+    if (!ip || ip[0] == '\0') return 1;
+
+    RateEntry entry = {0};
+    time_t now = time(NULL);
+
+    ht_get(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+
+    if (now - entry.window_start >= 1) {
+        entry.count_prev   = entry.count_curr;
+        entry.count_curr   = 0;
+        entry.window_start = now;
+    }
+
+    double elapsed   = difftime(now, entry.window_start);
+    double estimated = entry.count_prev * (1.0 - elapsed) + entry.count_curr;
+
+    if (estimated >= RATE_LIMIT_RPS) {
+        ht_set(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+        return 0;
+    }
+
+    entry.count_curr++;
+    ht_set(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+    return 1;
+}
+
+void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const char *snap_path) {
     struct epoll_event events[MAX_EVENTS];
     ClientCtx *head = NULL;
     int active_clients = 0;
@@ -477,7 +523,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path) {
                 continue;
             }
 
-            handle_socket_event(sctx.epoll_fd, ctx, db, &head, &active_clients);
+            handle_socket_event(sctx.epoll_fd, ctx, db, rl_table, &head, &active_clients);
         }
     }
 
@@ -491,9 +537,8 @@ void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path) {
 }
 
 int main(int argc, char **argv) {
-
-    stats.last_snapshot_time = time(NULL); 
-    stats.start_time = time(NULL);
+    stats.start_time         = time(NULL);
+    stats.last_snapshot_time = time(NULL);
     int idxLoad, idxSave;
     analyze_args(argc, argv, &idxLoad, &idxSave);
     config_signal_context();
@@ -503,17 +548,24 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    Hash_Table *db = ht_create(16384, hash_key);
+    Hash_Table *db       = ht_create(16384, hash_key);
+    Hash_Table *rateLimit_table = ht_create(1024, hash_key); 
+
+    if (!db || !rateLimit_table) {
+        fprintf(stderr, "Critical: Could not initialize hash tables\n");
+        return EXIT_FAILURE;
+    }
 
     if (idxLoad != -1 && ht_load(db, argv[idxLoad]))
         printf("Table loaded from %s\n", argv[idxLoad]);
     else
         printf("Starting with empty table\n");
 
-    server_loop(start_server(PORT), db, (idxSave != -1) ? argv[idxSave] : NULL);
+    server_loop(start_server(PORT), db, rateLimit_table, (idxSave != -1) ? argv[idxSave] : NULL);
 
     //clean
     client_pool_destroy();
     ht_destroy(db, (idxSave != -1) ? argv[idxSave] : NULL);
+    ht_destroy(rateLimit_table, NULL); 
     return 0;
 }

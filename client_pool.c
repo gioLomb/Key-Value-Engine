@@ -13,7 +13,6 @@
  * Chunks are organised in a doubly-linked list (next/prev) so that a fully
  * freed chunk can unlink and free itself in O(1) without traversing the list
  */
-
 typedef struct MemoryChunk {
     ClientCtx clients[CHUNK_SIZE];
     ClientCtx *local_free_list;
