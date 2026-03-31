@@ -26,7 +26,7 @@
 #include "hash_table.h"
 
 /* set to 0 by the SIGINT handler; read by server_loop() to exit cleanly */
-extern volatile sig_atomic_t keep_running;
+extern volatile sig_atomic_t keepRunning;
 
 /**
  * Holds the two file descriptors that define the server's I/O context:
@@ -34,8 +34,8 @@ extern volatile sig_atomic_t keep_running;
  * with all accepted client sockets and their keepalive timerfds.
  */
 typedef struct {
-    int server_fd;
-    int epoll_fd;
+    int serverFd;
+    int epollFd;
 } ServerCtx;
 
 /**
@@ -44,12 +44,12 @@ typedef struct {
  * to monitor server health and trigger scheduled snapshots.
  */
 typedef struct {
-    int *active_clients_ptr;
-    unsigned long total_requests;
-    unsigned long total_connections;
-    time_t        start_time;
-    unsigned long keys_modified_since_snapshot;
-    time_t        last_snapshot_time;
+    int *activeClientsPtr;
+    unsigned long totalRequests;
+    unsigned long totalConnections;
+    time_t        startTime;
+    unsigned long keysModifiedSinceSnapshot;
+    time_t        lastSnapshotTime;
 } ServerStats;
 
 /**
@@ -58,9 +58,9 @@ typedef struct {
  * calculate a weighted moving average, ensuring smooth traffic enforcement.
  */
 typedef struct {
-    unsigned long count_curr;
-    unsigned long count_prev;
-    time_t        window_start;
+    unsigned long countCurr;
+    unsigned long countPrev;
+    time_t        windowStartTime;
 } RateEntry;
 
 typedef enum { TYPE_SOCKET, TYPE_TIMER } EvType;
@@ -90,11 +90,11 @@ void config_signal_context(void);
 /**
  * Core event loop managing I/O multiplexing and server maintenance.
  * Runs epoll_wait() to dispatch socket events, handle keep-alive timers, and 
- * process incoming HTTP requests with rate limiting (rl_table). Periodically 
- * triggers database snapshots (snap_path) to ensure persistence. On SIGINT (Ctrl+c), 
+ * process incoming HTTP requests with rate limiting (rateLimitTable). Periodically 
+ * triggers database snapshots (snapFilePath) to ensure persistence. On SIGINT (Ctrl+c), 
  * performs a graceful shutdown by closing all active clients and system fds.
  */
-void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const char *snap_path);
+void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rateLimitTable, const char *snapFilePath);
 
 /**
  * Formats and transmits a complete HTTP/1.1 response.

@@ -6,11 +6,11 @@
  *
  * Within each chunk, free slots are linked through a local free list
  * (ClientCtx.next), making alloc and release O(1). Every slot stores a
- * back-pointer to its owning chunk (parent_chunk), so client_pool_release()
+ * back-pointer to its owning chunk (parentChunk), so client_pool_release()
  * can locate the chunk in O(1) without any global search.
  *
- * Chunks are organised in a doubly-linked list anchored at chunks_head.
- * When a chunk's used_count reaches zero and it is not the last remaining
+ * Chunks are organised in a doubly-linked list anchored at chunksHead.
+ * When a chunk's usedCount reaches zero and it is not the last remaining
  * chunk, it is unlinked and freed immediately, keeping resident memory
  * proportional to the peak concurrent client count. The last chunk is always
  * retained to avoid repeated alloc/free cycles under low load.
@@ -27,7 +27,7 @@ struct MemoryChunk;
 
 /**
  * Describes a single monitored fd. Embedded (not heap-allocated) inside
- * ClientCtx, so &ctx->sock_ev or &ctx->timer_ev can be stored directly in
+ * ClientCtx, so &ctx->sockEv or &ctx->timerEv can be stored directly in
  * epoll_event.data.ptr without any extra malloc.
  * On a fired event the handler casts data.ptr to ConnectionEvent*, reads
  * type to decide the action, and follows parent to reach the owning context.
@@ -39,7 +39,7 @@ typedef struct {
 } ConnectionEvent;
 
 /**
- * Per-connection context. sock_ev and timer_ev are embedded ConnectionEvent
+ * Per-connection context. sockEv and timerEv are embedded ConnectionEvent
  * structs registered directly in epoll; no separate allocation is needed.
  * buffer holds the incoming HTTP request for this connection.
  * next/prev link all live contexts in a doubly-linked list anchored in
@@ -47,11 +47,11 @@ typedef struct {
  * any auxiliary data structure. Every instance belong to a parent chunk in memory
  */
 typedef struct ClientCtx {
-    ConnectionEvent sock_ev;
-    ConnectionEvent timer_ev;
+    ConnectionEvent sockEv;
+    ConnectionEvent timerEv;
     struct ClientCtx *next;
     struct ClientCtx *prev;
-    struct MemoryChunk *parent_chunk;
+    struct MemoryChunk *parentChunk;
     char buffer[BUFFER_SIZE]; 
 } ClientCtx;
 
@@ -71,7 +71,7 @@ ClientCtx* client_pool_alloc(void);
 
 /**
  * delete the ClientCtx reference, putting it into the local list
- * of the chunk (taken from the parent_chunk member).
+ * of the chunk (taken from the parentChunk member).
  * If the reference counting of the parent chunk is 0,
  * it provides to shrink the chunk memory(unless the last one)
  */

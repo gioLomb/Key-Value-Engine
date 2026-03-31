@@ -6,13 +6,13 @@
 #include <sys/timerfd.h>
 #include <fcntl.h>
 
-volatile sig_atomic_t keep_running = 1;
+volatile sig_atomic_t keepRunning = 1;
 ServerStats stats = {0};
 
 /* STATIC FUNCTION PROTOTYPES */
 
 /**
- * SIGINT handler: writes a short message to stdout and clears keep_running
+ * SIGINT handler: writes a short message to stdout and clears keepRunning
  * so server_loop() exits cleanly on the next epoll_wait() iteration.
  * Only async-signal-safe functions are used.
  */
@@ -39,44 +39,44 @@ static int set_nonblocking(int fd);
 static int make_timerfd(void);
 
 /**
- * Re-arms ctx->timer_ev.fd to KEEPALIVE_TIMEOUT seconds from now.
- * Does nothing if timer_ev.fd is -1.It returns 0 on success, -1 otherwise.
+ * Re-arms ctx->timerEv.fd to KEEPALIVE_TIMEOUT seconds from now.
+ * Does nothing if timerEv.fd is -1.It returns 0 on success, -1 otherwise.
  */
 static int reset_timer(ClientCtx *ctx);
 
 /**
  * Unlinks ctx from the live-client list, deregisters and closes both fds,
- * frees the ClientCtx, and decrements *active_clients.
+ * frees the ClientCtx, and decrements *activeClients.
  */
-static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients);
+static void close_client(int epollFd, ClientCtx *ctx, ClientCtx **head, int *activeClients);
 
 /**
  * Allocates and fully initialises a ClientCtx for an already-accepted clientFd.
  * Returns 1 on success, 0 on any failure (resources are released internally;
  * the caller is responsible only for closing clientFd on failure).
  */
-static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *active_clients);
+static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *activeClients);
 
 /**
  * Drains all pending connections from the listening socket, calling
  * setup_client() for each one. Drops connections when MAX_CLIENTS is
  * reached or when setup_client() fails, logging the reason to stderr.
  */
-static void accept_connections(ServerCtx sctx, ClientCtx **head, int *active_clients);
+static void accept_connections(ServerCtx sctx, ClientCtx **head, int *activeClients);
 
 /**
  * Handles a fired timerfd event: consumes the expiration counter and closes
  * the owning client connection.
  */
-static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients);
+static void handle_timerEvent(int epollFd, ClientCtx *ctx, ClientCtx **head, int *activeClients);
 
 /**
- * Reads the pending HTTP request from ctx->sock_ev.fd, dispatches it to
+ * Reads the pending HTTP request from ctx->sockEv.fd, dispatches it to
  * handle_request(), and sends the response. Resets the timer and returns 1
  * on keep-alive, calls close_client() and returns 0 otherwise.
  */
-static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
-                                Hash_Table *rl_table, ClientCtx **head, int *active_clients);
+static int handle_socket_event(int epollFd, ClientCtx *ctx, Hash_Table *db,
+                                Hash_Table *rateLimitTable, ClientCtx **head, int *activeClients);
 
 /**
  * check_snapshot - Periodically triggers a database dump based on a timer.
@@ -87,10 +87,10 @@ static void check_snapshot(Hash_Table *db, const char *path,ServerCtx sctx);
 
 /**
  * rate_limit_check - Implements a sliding window rate limiting algorithm.
- * Tracks requests per IP in the rl_table; returns 1 if the request is 
+ * Tracks requests per IP in the rateLimitTable; returns 1 if the request is 
  * within the allowed RATE_LIMIT_RPS, 0 if the limit has been exceeded.
  */
-static int rate_limit_check(Hash_Table *rl_table, const char *ip);
+static int rate_limit_check(Hash_Table *rateLimitTable, const char *ip);
 
 /* DEFINITIONS */
 
@@ -117,7 +117,7 @@ unsigned long hash_key(const void *key, size_t keySize, unsigned long seed) {
 
 static void handle_sigint(int sig) {
     (void)sig;
-    keep_running = 0;
+    keepRunning = 0;
 }
 
 void config_signal_context(void) {
@@ -175,35 +175,35 @@ static int make_timerfd(void) {
 }
 
 static int reset_timer(ClientCtx *ctx) {
-    if (ctx->timer_ev.fd == -1) return 0; 
+    if (ctx->timerEv.fd == -1) return 0; 
     struct itimerspec ts = { .it_interval = {0,0}, .it_value = {KEEPALIVE_TIMEOUT,0} };
-    if (timerfd_settime(ctx->timer_ev.fd, 0, &ts, NULL) == -1) {
+    if (timerfd_settime(ctx->timerEv.fd, 0, &ts, NULL) == -1) {
         perror("timerfd_settime failed");
         return -1;
     }
     return 0;
 }
 
-static void close_client(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients) {    
+static void close_client(int epollFd, ClientCtx *ctx, ClientCtx **head, int *activeClients) {    
     //delete from list
     if (ctx->prev) ctx->prev->next = ctx->next;
     else *head = ctx->next;
     if (ctx->next) ctx->next->prev = ctx->prev;
 
     //delete epoll instance
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ctx->sock_ev.fd, NULL);
-    close(ctx->sock_ev.fd);
+    epoll_ctl(epollFd, EPOLL_CTL_DEL, ctx->sockEv.fd, NULL);
+    close(ctx->sockEv.fd);
 
-    if (ctx->timer_ev.fd != -1) {
-        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ctx->timer_ev.fd, NULL);
-        close(ctx->timer_ev.fd);
+    if (ctx->timerEv.fd != -1) {
+        epoll_ctl(epollFd, EPOLL_CTL_DEL, ctx->timerEv.fd, NULL);
+        close(ctx->timerEv.fd);
     }
 
     client_pool_release(ctx);
-    (*active_clients)--;
+    (*activeClients)--;
 }
 
-static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *active_clients) {
+static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *activeClients) {
     ClientCtx *ctx = NULL;
     int tfd = -1;
 
@@ -227,21 +227,21 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     if (tfd == -1)
         fprintf(stderr, "warn: make_timerfd failed (%s) - no keepalive timer\n",strerror(errno));
 
-    ctx->sock_ev = (ConnectionEvent){ .fd = clientFd, .type = TYPE_SOCKET, .parent = ctx };
-    ctx->timer_ev = (ConnectionEvent){ .fd = tfd, .type = TYPE_TIMER, .parent = ctx };
+    ctx->sockEv = (ConnectionEvent){ .fd = clientFd, .type = TYPE_SOCKET, .parent = ctx };
+    ctx->timerEv = (ConnectionEvent){ .fd = tfd, .type = TYPE_TIMER, .parent = ctx };
 
     //set epoll instances
-    struct epoll_event cev = { .events = EPOLLIN, .data.ptr = &ctx->sock_ev };
-    if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, clientFd, &cev) == -1) {
+    struct epoll_event cev = { .events = EPOLLIN, .data.ptr = &ctx->sockEv };
+    if (epoll_ctl(sctx.epollFd, EPOLL_CTL_ADD, clientFd, &cev) == -1) {
         perror("epoll_ctl clientFd failed");
         goto fail;
     }
 
     if (tfd != -1) {
-        struct epoll_event tev = { .events = EPOLLIN, .data.ptr = &ctx->timer_ev };
-        if (epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, tfd, &tev) == -1) {
+        struct epoll_event tev = { .events = EPOLLIN, .data.ptr = &ctx->timerEv };
+        if (epoll_ctl(sctx.epollFd, EPOLL_CTL_ADD, tfd, &tev) == -1) {
             perror("epoll_ctl timerfd failed");
-            epoll_ctl(sctx.epoll_fd, EPOLL_CTL_DEL, clientFd, NULL);
+            epoll_ctl(sctx.epollFd, EPOLL_CTL_DEL, clientFd, NULL);
             goto fail;
         }
     }
@@ -251,8 +251,8 @@ static int setup_client(ServerCtx sctx, int clientFd, ClientCtx **head, int *act
     ctx->prev = NULL;
     if (*head) (*head)->prev = ctx;
     *head = ctx;
-    (*active_clients)++;
-    stats.total_connections++;
+    (*activeClients)++;
+    stats.totalConnections++;
     return 1;
 
 fail:
@@ -262,38 +262,38 @@ fail:
     return 0;
 }
 
-static void accept_connections(ServerCtx sctx, ClientCtx **head, int *active_clients) {
+static void accept_connections(ServerCtx sctx, ClientCtx **head, int *activeClients) {
     while (1) {
-        int clientFd = accept(sctx.server_fd, NULL, NULL);
+        int clientFd = accept(sctx.serverFd, NULL, NULL);
         if (clientFd == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             perror("accept failed");
             break;
         }
 
-        if (*active_clients >= MAX_CLIENTS) {
+        if (*activeClients >= MAX_CLIENTS) {
             fprintf(stderr, "max clients (%d) reached, dropping\n", MAX_CLIENTS);
             close(clientFd);
             continue;
         }
 
-        if (!setup_client(sctx, clientFd, head, active_clients)) {
+        if (!setup_client(sctx, clientFd, head, activeClients)) {
             /* clientFd already closed inside setup_client's fail path */
         }
     }
 }
 
-static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, int *active_clients) {
+static void handle_timerEvent(int epollFd, ClientCtx *ctx, ClientCtx **head, int *activeClients) {
     // consume the expiration counter so the fd does not re-fire immediately
     uint64_t expirations;
-    if (read(ctx->timer_ev.fd, &expirations, sizeof(expirations)) == -1 && errno != EAGAIN)
+    if (read(ctx->timerEv.fd, &expirations, sizeof(expirations)) == -1 && errno != EAGAIN)
         perror("timerfd read failed");
 
-    close_client(epoll_fd, ctx, head, active_clients);
+    close_client(epollFd, ctx, head, activeClients);
 }
 
-static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
-                                Hash_Table *rl_table, ClientCtx **head, int *active_clients) {
+static int handle_socket_event(int epollFd, ClientCtx *ctx, Hash_Table *db,
+                                Hash_Table *rateLimitTable, ClientCtx **head, int *activeClients) {
 
     char   responseBuffer[RESPONSE_BUFFER_SIZE] = {0};
     size_t totalRead = 0;
@@ -307,19 +307,19 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
     struct sockaddr_in peer;
     socklen_t peerlen = sizeof(peer);
     char ip[INET_ADDRSTRLEN] = {0};
-    if (getpeername(ctx->sock_ev.fd, (struct sockaddr *)&peer, &peerlen) == 0)
+    if (getpeername(ctx->sockEv.fd, (struct sockaddr *)&peer, &peerlen) == 0)
         inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
 
     // check rate limit
-    if (DEBUG_RATE_LIMIT && !rate_limit_check(rl_table, ip)) {
-        send_response(ctx->sock_ev.fd, 429, "Too Many Requests\n", 0);
-        close_client(epoll_fd, ctx, head, active_clients);
+    if (DEBUG_RATE_LIMIT && !rate_limit_check(rateLimitTable, ip)) {
+        send_response(ctx->sockEv.fd, 429, "Too Many Requests\n", 0);
+        close_client(epollFd, ctx, head, activeClients);
         return 0;
     }
 
     //get bytes from client (until EAGAIN)
     while (totalRead < BUFFER_SIZE - 1) {
-        ssize_t nBytes = read(ctx->sock_ev.fd, ctx->buffer + totalRead, BUFFER_SIZE - 1 - totalRead);
+        ssize_t nBytes = read(ctx->sockEv.fd, ctx->buffer + totalRead, BUFFER_SIZE - 1 - totalRead);
 
         if (nBytes > 0) {
             totalRead += (size_t)nBytes;
@@ -343,8 +343,8 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
     //handle request and response
     ctx->buffer[totalRead] = '\0';
     int statusCode = handle_request(db, ctx->buffer, responseBuffer, &keepAlive);
-    stats.total_requests++;
-    send_response(ctx->sock_ev.fd, statusCode, responseBuffer, keepAlive);
+    stats.totalRequests++;
+    send_response(ctx->sockEv.fd, statusCode, responseBuffer, keepAlive);
 
     if (keepAlive) {
         if(reset_timer(ctx) == -1) goto close_connection; 
@@ -352,7 +352,7 @@ static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db,
     }
 
     close_connection:
-        close_client(epoll_fd, ctx, head, active_clients);
+        close_client(epollFd, ctx, head, activeClients);
         return 0;
 }
 
@@ -360,15 +360,15 @@ static ServerCtx start_server(int port) {
     ServerCtx ctx;
     struct sockaddr_in address;
 
-    ctx.server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (ctx.server_fd == -1) { perror("socket failed"); exit(EXIT_FAILURE); }
+    ctx.serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (ctx.serverFd == -1) { perror("socket failed"); exit(EXIT_FAILURE); }
 
     int opt = 1;
-    if (setsockopt(ctx.server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    if (setsockopt(ctx.serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt failed"); exit(EXIT_FAILURE);
     }
 
-    if (set_nonblocking(ctx.server_fd) == -1) { 
+    if (set_nonblocking(ctx.serverFd) == -1) { 
         perror("set_nonblocking failed");
         exit(EXIT_FAILURE); 
     }
@@ -377,19 +377,19 @@ static ServerCtx start_server(int port) {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
 
-    if (bind(ctx.server_fd, (const struct sockaddr *)&address, sizeof(address)) < 0) {
+    if (bind(ctx.serverFd, (const struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed"); exit(EXIT_FAILURE);
     }
-    if (listen(ctx.server_fd, LISTEN_BACKLOG) < 0) { perror("listen failed"); exit(EXIT_FAILURE); }
+    if (listen(ctx.serverFd, LISTEN_BACKLOG) < 0) { perror("listen failed"); exit(EXIT_FAILURE); }
 
-    ctx.epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-    if (ctx.epoll_fd == -1) { perror("epoll_create1 failed"); exit(EXIT_FAILURE); }
+    ctx.epollFd = epoll_create1(EPOLL_CLOEXEC);
+    if (ctx.epollFd == -1) { perror("epoll_create1 failed"); exit(EXIT_FAILURE); }
 
     // server fd uses data.ptr = NULL as sentinel ,distinguishable from any
     // valid ConnectionEvent pointer in the event loop
     struct epoll_event ev = { .events = EPOLLIN | EPOLLET, .data.ptr = NULL };
-    if (epoll_ctl(ctx.epoll_fd, EPOLL_CTL_ADD, ctx.server_fd, &ev) == -1) {
-        perror("epoll_ctl server_fd failed"); exit(EXIT_FAILURE);
+    if (epoll_ctl(ctx.epollFd, EPOLL_CTL_ADD, ctx.serverFd, &ev) == -1) {
+        perror("epoll_ctl serverFd failed"); exit(EXIT_FAILURE);
     }
 
     printf("Server listening on port %d (epoll, max %d clients)...\n", port, MAX_CLIENTS);
@@ -437,22 +437,22 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
 static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     if (!path) return;
     time_t now = time(NULL);
-    if ((now - stats.last_snapshot_time) >= 300 && stats.keys_modified_since_snapshot >= 100) {
+    if ((now - stats.lastSnapshotTime) >= 300 && stats.keysModifiedSinceSnapshot >= 100) {
 
         pid_t pid = fork();
         //son processmanage the snapshot 
         if (pid == 0) {
             //close the fds, otherwise they allow listening by son process
-            close(sctx.server_fd);
-            close(sctx.epoll_fd);
+            close(sctx.serverFd);
+            close(sctx.epollFd);
             
             ht_snapshot(db, path); //Note: ht_snapshot hold an unecessary rdlock
             exit(0);
         } else if (pid > 0) {
 
-            unsigned long modified = stats.keys_modified_since_snapshot;
-            stats.keys_modified_since_snapshot = 0;
-            stats.last_snapshot_time = now;
+            unsigned long modified = stats.keysModifiedSinceSnapshot;
+            stats.keysModifiedSinceSnapshot = 0;
+            stats.lastSnapshotTime = now;
             printf("Snapshot started in child process %d (%lu keys modified)\n", pid, modified);
         } else {
             perror("fork snapshot failed");
@@ -460,58 +460,58 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     }
 }
 
-static int rate_limit_check(Hash_Table *rl_table, const char *ip) {
+static int rate_limit_check(Hash_Table *rateLimitTable, const char *ip) {
     if (!ip || ip[0] == '\0') return 1;
 
     RateEntry entry = {0};
     time_t now = time(NULL);
     //retrieve or initialize rate limiting data for this IP
-    ht_get(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+    ht_get(rateLimitTable, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
 
     //shift the window: if a second has passed, move current count to previous
-    if (now - entry.window_start >= 1) {
-        entry.count_prev   = entry.count_curr;
-        entry.count_curr   = 0;
-        entry.window_start = now;
+    if (now - entry.windowStartTime >= 1) {
+        entry.countPrev   = entry.countCurr;
+        entry.countCurr   = 0;
+        entry.windowStartTime = now;
     }
 
     //weighted average of previous and current second
-    double elapsed   = difftime(now, entry.window_start);
-    double estimated = entry.count_prev * (1.0 - elapsed) + entry.count_curr;
+    double elapsed   = difftime(now, entry.windowStartTime);
+    double estimated = entry.countPrev * (1.0 - elapsed) + entry.countCurr;
 
     if (estimated >= RATE_LIMIT_RPS) {
-        ht_set(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+        ht_set(rateLimitTable, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
         return 0;
     }
 
     //save changes
-    entry.count_curr++;
-    ht_set(rl_table, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+    entry.countCurr++;
+    ht_set(rateLimitTable, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
     return 1;
 }
 
-static inline void set_snapshot_timer(int epoll_fd,int *snap_tfd,int *snapshot_tfd_sentinel){
+static inline void set_snapshot_timer(int epollFd,int *snap_tfd,int *snapshot_tfd_sentinel){
     //set snapshot timer event
     *snap_tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
     struct itimerspec snap_ts = { .it_interval = {60, 0}, .it_value = {60, 0} }; //check every minute
     timerfd_settime(*snap_tfd, 0, &snap_ts, NULL);
 
     struct epoll_event snap_ev = { .events = EPOLLIN, .data.ptr = snapshot_tfd_sentinel };
-    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, *snap_tfd, &snap_ev);
+    epoll_ctl(epollFd, EPOLL_CTL_ADD, *snap_tfd, &snap_ev);
 }
 
-void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const char *snap_path) {
+void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rateLimitTable, const char *snapFilePath) {
     struct epoll_event events[MAX_EVENTS];
     ClientCtx *head = NULL;
-    int active_clients = 0;
-    stats.active_clients_ptr = &active_clients;
+    int activeClients = 0;
+    stats.activeClientsPtr = &activeClients;
 
     static int snapshot_tfd_sentinel = 0; 
     int snap_tfd = -1;
-    if(snap_path) set_snapshot_timer(sctx.epoll_fd,&snap_tfd,&snapshot_tfd_sentinel);
+    if(snapFilePath) set_snapshot_timer(sctx.epollFd,&snap_tfd,&snapshot_tfd_sentinel);
 
-    while (keep_running) {
-        int numEventReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
+    while (keepRunning) {
+        int numEventReady = epoll_wait(sctx.epollFd, events, MAX_EVENTS, -1);
         if (numEventReady == -1) {
             if (errno == EINTR) continue;
             perror("epoll_wait failed");
@@ -523,7 +523,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const cha
 
             // NULL sentinel for server event
             if (ev == NULL) {
-                accept_connections(sctx, &head, &active_clients);
+                accept_connections(sctx, &head, &activeClients);
                 continue;
             }
 
@@ -531,32 +531,32 @@ void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rl_table, const cha
             if (ev == (ConnectionEvent *)&snapshot_tfd_sentinel) {
                 uint64_t exp;
                 read(snap_tfd, &exp, sizeof(exp)); 
-                check_snapshot(db, snap_path,sctx);
+                check_snapshot(db, snapFilePath,sctx);
                 continue;
             }
 
             ClientCtx *ctx = ev->parent;
             if (ev->type == TYPE_TIMER) {
-                handle_timer_event(sctx.epoll_fd, ctx, &head, &active_clients);
+                handle_timerEvent(sctx.epollFd, ctx, &head, &activeClients);
                 continue;
             }
 
-            handle_socket_event(sctx.epoll_fd, ctx, db, rl_table, &head, &active_clients);
+            handle_socket_event(sctx.epollFd, ctx, db, rateLimitTable, &head, &activeClients);
         }
     }
 
     // shutdown: walk the live-client list and close every connection
     while (head)
-        close_client(sctx.epoll_fd, head, &head, &active_clients);
+        close_client(sctx.epollFd, head, &head, &activeClients);
 
     if (snap_tfd != -1) close(snap_tfd);
-    close(sctx.epoll_fd);
-    close(sctx.server_fd);
+    close(sctx.epollFd);
+    close(sctx.serverFd);
 }
 
 int main(int argc, char **argv) {
-    stats.start_time         = time(NULL);
-    stats.last_snapshot_time = time(NULL);
+    stats.startTime         = time(NULL);
+    stats.lastSnapshotTime = time(NULL);
     int idxLoad, idxSave;
     analyze_args(argc, argv, &idxLoad, &idxSave);
     config_signal_context();
@@ -567,9 +567,9 @@ int main(int argc, char **argv) {
     }
 
     Hash_Table *db       = ht_create(16384, hash_key);
-    Hash_Table *rateLimit_table = ht_create(1024, hash_key); 
+    Hash_Table *rateLimitTable = ht_create(1024, hash_key); 
 
-    if (!db || !rateLimit_table) {
+    if (!db || !rateLimitTable) {
         fprintf(stderr, "Critical: Could not initialize hash tables\n");
         return EXIT_FAILURE;
     }
@@ -579,11 +579,11 @@ int main(int argc, char **argv) {
     else
         printf("Starting with empty table\n");
 
-    server_loop(start_server(PORT), db, rateLimit_table, (idxSave != -1) ? argv[idxSave] : NULL);
+    server_loop(start_server(PORT), db, rateLimitTable, (idxSave != -1) ? argv[idxSave] : NULL);
 
     //clean
     client_pool_destroy();
     ht_destroy(db, (idxSave != -1) ? argv[idxSave] : NULL);
-    ht_destroy(rateLimit_table, NULL); 
+    ht_destroy(rateLimitTable, NULL); 
     return 0;
 }

@@ -17,9 +17,9 @@ Concurrency is handled entirely through non-blocking I/O: a single `epoll` event
                                  │
             ┌────────────────────┼──────────────────────────┐
             │                    │                           │
-     server fd (NULL)     sock_ev (client)          timer_ev (keepalive)
+     server fd (NULL)     sock_ev (client)          timerEv (keepalive)
             │                    │                           │
-   accept_connections()  handle_socket_event()      handle_timer_event()
+   accept_connections()  handle_socket_event()      handle_timerEvent()
             │                    │
      setup_client()       rate_limit_check()
             │                    │
@@ -31,7 +31,7 @@ Concurrency is handled entirely through non-blocking I/O: a single `epoll` event
                                  │
                    ┌─────────────┴──────────────┐
                    │                            │
-              Hash_Table (db)          Hash_Table (rl_table)
+              Hash_Table (db)          Hash_Table (rateLimitTable)
               key-value store          per-IP rate limiting
 ```
 
@@ -66,7 +66,7 @@ A dedicated `timerfd` registered in the same epoll instance fires every 60 secon
 
 - **Slab allocation** — `ClientCtx` objects are stored in fixed-size `MemoryChunk` blocks of 64 slots each, allocated contiguously to minimise heap fragmentation under high connection rates
 - **O(1) alloc and release** — each chunk maintains a local free list threaded through `ClientCtx.next`; popping and pushing slots requires no global search
-- **O(1) chunk lookup on release** — every slot holds a `parent_chunk` back-pointer set at chunk creation and never mutated, so `client_pool_release()` locates the owning chunk without traversing the list
+- **O(1) chunk lookup on release** — every slot holds a `parentChunk` back-pointer set at chunk creation and never mutated, so `client_pool_release()` locates the owning chunk without traversing the list
 - **Automatic shrink** — when a chunk's reference count drops to zero it is unlinked and freed immediately, keeping resident memory proportional to peak concurrency; the last chunk is always retained to avoid churn under low load
 - **Transparent to callers** — `setup_client()` calls `client_pool_alloc()` and `close_client()` calls `client_pool_release()`; the rest of the server is unaware of the underlying slab structure
 
@@ -79,7 +79,7 @@ Five routes are supported via query parameters:
 | `/get` | `key=<k>` | `200 {"value":"..."}` | `404` key not found / `400` missing key |
 | `/set` | `key=<k>&val=<v>` | `200 stored` | `400` bad params / `500` internal error |
 | `/delete` | `key=<k>` | `200 value deleted` | `404` key not found / `400` missing key |
-| `/stats` | — | `200 {"uptime_seconds":...,"total_requests":...,"total_connections":...,"total_keys":...}` | — |
+| `/stats` | — | `200 {"uptime_seconds":...,"totalRequests":...,"totalConnections":...,"total_keys":...}` | — |
 | Any other path | — | — | `404` route does not exist |
 
 All keys and values are sanitised: percent-encoded sequences are decoded and every character must be printable before the request reaches the hash table. Values returned by `/get` are JSON-escaped before insertion into the response body to prevent injection.
@@ -103,7 +103,7 @@ Persistence is optional and controlled by the `-s` flag. When enabled:
 Each incoming request is checked against a per-IP sliding window counter before being dispatched to the route handler. The algorithm is an approximation of a sliding window using two fixed-window counters:
 
 ```
-estimated_rate = count_prev * (1 - elapsed / window) + count_curr
+estimated_rate = countPrev * (1 - elapsed / window) + countCurr
 ```
 
 If the estimated rate exceeds `RATE_LIMIT_RPS` (default 100 req/s), the server responds immediately with `429 Too Many Requests` and closes the connection. The rate table is a second `Hash_Table` instance keyed by IP string, entirely separate from the key-value store.
@@ -152,7 +152,7 @@ curl "http://localhost:8080/delete?key=hello"
 curl "http://localhost:8080/stats"
 ```
 
-Shut down cleanly with **Ctrl+C**: the SIGINT handler clears `keep_running`, the event loop drains, all open connections are closed, and the table is persisted if a save path was provided.
+Shut down cleanly with **Ctrl+C**: the SIGINT handler clears `keepRunning`, the event loop drains, all open connections are closed, and the table is persisted if a save path was provided.
 
 ---
 
@@ -179,8 +179,8 @@ All tunables live in `config.h`:
 | Field | Description |
 |---|---|
 | `uptime_seconds` | Seconds since server start |
-| `total_requests` | Total HTTP requests dispatched |
-| `total_connections` | Total TCP connections accepted |
+| `totalRequests` | Total HTTP requests dispatched |
+| `totalConnections` | Total TCP connections accepted |
 | `total_keys` | Current number of keys in the store |
 
 ---

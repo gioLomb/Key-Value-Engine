@@ -107,17 +107,17 @@ static int value_escaping(const char *src, char *dest, size_t destSize) {
 
 static int handler_stats(Hash_Table *table, const char *url, char *responseBuffer) {
     (void)url; //ignore param
-    time_t uptime = time(NULL) - stats.start_time;
+    time_t uptime = time(NULL) - stats.startTime;
 
     snprintf(responseBuffer, RESPONSE_BUFFER_SIZE,
         "{"
         "\"uptime_seconds\":%ld,"
-        "\"total_requests\":%lu,"
-        "\"total_connections\":%lu,"
+        "\"totalRequests\":%lu,"
+        "\"totalConnections\":%lu,"
         "\"total_keys\":%zu"
         "}\n",
         //stats taken without lock
-        (long)uptime, stats.total_requests, stats.total_connections,table->size
+        (long)uptime, stats.totalRequests, stats.totalConnections,table->size
     );
     return 200;
 }
@@ -169,7 +169,7 @@ static int handler_set(Hash_Table* table, const char* url, char* responseBuffer)
     if(key[0] && val[0] && is_sanitized(key) && is_sanitized(val)) {
 
         if(ht_set(table, key,strlen(key)+1, val, strlen(val) + 1)) {
-            stats.keys_modified_since_snapshot++;
+            stats.keysModifiedSinceSnapshot++;
             snprintf(responseBuffer, BUFFER_SIZE, "stored\n");
             return 200;
         } else {
@@ -192,7 +192,7 @@ static int handler_delete(Hash_Table* table, const char* url, char* responseBuff
     if(key[0]) {
 
         if(ht_delete(table, key,strlen(key)+1)) {
-            stats.keys_modified_since_snapshot++;
+            stats.keysModifiedSinceSnapshot++;
             snprintf(responseBuffer, BUFFER_SIZE, "value deleted\n");
             return 200;
         } else {
