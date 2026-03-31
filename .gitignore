@@ -7,3 +7,5 @@ server
 stress.c
 benchmark_report.docx
 temp/
+*.bin
+*.lua

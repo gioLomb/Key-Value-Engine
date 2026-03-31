@@ -43,6 +43,8 @@ typedef struct {
     unsigned long total_requests;
     unsigned long total_connections;
     time_t        start_time;
+    unsigned long keys_modified_since_snapshot;
+    time_t        last_snapshot_time;
 } ServerStats;
 extern ServerStats stats;
 
@@ -75,7 +77,7 @@ void config_signal_context(void);
  * On exit, iterates the live-client list to close every open connection,
  * then closes the epoll fd and the server fd.
  */
-void server_loop(ServerCtx sctx, Hash_Table *db);
+void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path);
 
 /**
  * Formats a complete HTTP/1.1 response and writes it to socketFd.

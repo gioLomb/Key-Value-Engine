@@ -73,6 +73,24 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction) {
     return table;
 }
 
+void ht_snapshot(Hash_Table *table, const char *path) {
+    if (!table || !path) return;
+
+    FILE *f = fopen(path, "wb");
+    if (!f) { perror("ht_snapshot: fopen failed"); return; }
+
+    pthread_rwlock_rdlock(&table->lock);   // read lock: non blocca le GET
+    for (size_t i = 0; i < table->capacity; i++) {
+        Entry *current = table->pool[i];
+        while (current) {
+            save_data_on_file(current, f);
+            current = current->next;
+        }
+    }
+    pthread_rwlock_unlock(&table->lock);
+    fclose(f);
+}
+
 int ht_set(Hash_Table *table, void *key, size_t keySize, void *value, size_t valueSize) {
     if (!table || !key) return 0;
     pthread_rwlock_wrlock(&table->lock);
@@ -181,18 +199,14 @@ int ht_delete(Hash_Table *table, void *key,size_t keySize) {
 
 void ht_destroy(Hash_Table *table, const char *persistenceFilePath) {
     if (!table) return;
-
-    FILE *f = NULL;
-    if (persistenceFilePath) {
-        f = fopen(persistenceFilePath, "wb");
-    }
+    if (persistenceFilePath) ht_snapshot(table, persistenceFilePath);
 
     // walk through the bucket chains in the table
     for (size_t i = 0; i < table->capacity; i++) {
         Entry *current = table->pool[i];
         while (current) {
             Entry *next = current->next;
-            if (f) save_data_on_file(current, f);
+            //if (f) save_data_on_file(current, f);
             free(current->key);
             free(current->value);
             free(current);
@@ -200,7 +214,7 @@ void ht_destroy(Hash_Table *table, const char *persistenceFilePath) {
         }
     }
 
-    if (f) fclose(f);
+    //if (f) fclose(f);
     free(table->pool);
     pthread_rwlock_destroy(&table->lock);
     free(table);

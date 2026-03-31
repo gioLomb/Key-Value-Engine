@@ -79,7 +79,7 @@ static void handle_timer_event(int epoll_fd, ClientCtx *ctx, ClientCtx **head, i
  */
 static int handle_socket_event(int epoll_fd, ClientCtx *ctx, Hash_Table *db, ClientCtx **head, int *active_clients);
 
-
+static void check_snapshot(Hash_Table *db, const char *path);
 /* DEFINITIONS */
 
 
@@ -400,11 +400,37 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
     }
 }
 
-void server_loop(ServerCtx sctx, Hash_Table *db) {
+static void check_snapshot(Hash_Table *db, const char *path) {
+    if (!path) return;
+    time_t now = time(NULL);
+    //snap after 5 minutes and at least 100 updates
+    if ((now - stats.last_snapshot_time) >= 10 && stats.keys_modified_since_snapshot >= 100) { 
+
+        unsigned long modified = stats.keys_modified_since_snapshot;
+        ht_snapshot(db, path);
+        stats.keys_modified_since_snapshot = 0;
+        stats.last_snapshot_time = now;
+        printf("Snapshot saved (%lu keys modified)\n", modified);  
+    }
+}
+
+void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path) {
     struct epoll_event events[MAX_EVENTS];
     ClientCtx *head = NULL;
     int active_clients = 0;
     stats.active_clients_ptr = &active_clients;
+
+    static int snapshot_tfd_sentinel = 0; 
+    int snap_tfd = -1;
+    if(snap_path){
+    //set snapshot timer event
+    snap_tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    struct itimerspec snap_ts = { .it_interval = {60, 0}, .it_value = {60, 0} }; //check every minute
+    timerfd_settime(snap_tfd, 0, &snap_ts, NULL);
+
+    struct epoll_event snap_ev = { .events = EPOLLIN, .data.ptr = &snapshot_tfd_sentinel };
+    epoll_ctl(sctx.epoll_fd, EPOLL_CTL_ADD, snap_tfd, &snap_ev);
+    }
 
     while (keep_running) {
         int nReady = epoll_wait(sctx.epoll_fd, events, MAX_EVENTS, -1);
@@ -423,8 +449,15 @@ void server_loop(ServerCtx sctx, Hash_Table *db) {
                 continue;
             }
 
-            ClientCtx *ctx = ev->parent;
+            //snapshot timer check
+            if (ev == (ConnectionEvent *)&snapshot_tfd_sentinel) {
+                uint64_t exp;
+                read(snap_tfd, &exp, sizeof(exp)); 
+                check_snapshot(db, snap_path);
+                continue;
+            }
 
+            ClientCtx *ctx = ev->parent;
             if (ev->type == TYPE_TIMER) {
                 handle_timer_event(sctx.epoll_fd, ctx, &head, &active_clients);
                 continue;
@@ -438,6 +471,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db) {
     while (head)
         close_client(sctx.epoll_fd, head, &head, &active_clients);
 
+    if (snap_tfd != -1) close(snap_tfd);
     close(sctx.epoll_fd);
     close(sctx.server_fd);
 }
@@ -460,7 +494,7 @@ int main(int argc, char **argv) {
     else
         printf("Starting with empty table\n");
 
-    server_loop(start_server(PORT), db);
+    server_loop(start_server(PORT), db, (idxSave != -1) ? argv[idxSave] : NULL);
 
     //clean
     client_pool_destroy();

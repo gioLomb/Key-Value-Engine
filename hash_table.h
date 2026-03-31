@@ -78,6 +78,8 @@ Hash_Table *ht_create(size_t initialCapacity, hash_func hashFunction);
  */
 void ht_destroy(Hash_Table *table, const char *persistenceFilePath);
 
+void ht_snapshot(Hash_Table *table, const char *path);
+
 /**
  * Inserts a new key-value pair or updates (when the key already exists) an existing one.
  * A resize is triggered when size + 1 >= capacity.

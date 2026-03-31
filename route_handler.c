@@ -169,6 +169,7 @@ static int handler_set(Hash_Table* table, const char* url, char* responseBuffer)
     if(key[0] && val[0] && is_sanitized(key) && is_sanitized(val)) {
 
         if(ht_set(table, key,strlen(key)+1, val, strlen(val) + 1)) {
+            stats.keys_modified_since_snapshot++;
             snprintf(responseBuffer, BUFFER_SIZE, "stored\n");
             return 200;
         } else {
@@ -191,6 +192,7 @@ static int handler_delete(Hash_Table* table, const char* url, char* responseBuff
     if(key[0]) {
 
         if(ht_delete(table, key,strlen(key)+1)) {
+            stats.keys_modified_since_snapshot++;
             snprintf(responseBuffer, BUFFER_SIZE, "value deleted\n");
             return 200;
         } else {
