@@ -10,6 +10,7 @@ volatile sig_atomic_t keep_running = 1;
 ServerStats stats = {0};
 
 
+
 /* STATIC FUNCTION PROTOTYPES */
 
 
@@ -412,8 +413,8 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
             //close the fds, otherwise they allow listening by son process
             close(sctx.server_fd);
             close(sctx.epoll_fd);
-
-            ht_snapshot(db, path);
+            
+            ht_snapshot(db, path); //Note: ht_snapshot hold an unecessary rdlock
             exit(0);
         } else if (pid > 0) {
             unsigned long modified = stats.keys_modified_since_snapshot;
@@ -490,6 +491,8 @@ void server_loop(ServerCtx sctx, Hash_Table *db, const char *snap_path) {
 }
 
 int main(int argc, char **argv) {
+
+    stats.last_snapshot_time = time(NULL); 
     stats.start_time = time(NULL);
     int idxLoad, idxSave;
     analyze_args(argc, argv, &idxLoad, &idxSave);
