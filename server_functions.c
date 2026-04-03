@@ -86,11 +86,22 @@ static int handle_socket_event(int epollFd, ClientCtx *ctx, Hash_Table *db,
 static void check_snapshot(Hash_Table *db, const char *path,ServerCtx sctx);
 
 /**
- * rate_limit_check - Implements a sliding window rate limiting algorithm.
+ * Implements a sliding window rate limiting algorithm.
  * Tracks requests per IP in the rateLimitTable; returns 1 if the request is 
  * within the allowed RATE_LIMIT_RPS, 0 if the limit has been exceeded.
  */
 static int rate_limit_check(Hash_Table *rateLimitTable, const char *ip);
+
+/**
+ * Checks if a file path is safe to use.
+ * This function ensures that the provided path is relative and does not 
+ * attempt to "climb" out of the server's intended directory using ".." 
+ * sequences. It also restricts characters to a safe 
+ * whitelist to prevent unexpected behavior with special shell characters.
+ * Returns 1 if the path is clear, or 0 if it looks suspicious.
+ */
+static int is_safe_path(const char *path);
+
 
 /* DEFINITIONS */
 
@@ -132,8 +143,29 @@ void config_signal_context(void) {
     signal(SIGPIPE, SIG_IGN);
 }
 
+static int is_safe_path(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    if (path[0] == '/')           return 0; 
+
+    const char *p = path;
+    int segLen = 0;
+    for (; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!isalnum(c) && c != '/' && c != '_' && c != '-' && c != '.') return 0;
+        if (c == '/') {
+            if (segLen == 2 && p[-2] == '.' && p[-1] == '.') return 0;
+            segLen = 0;
+        } else {
+            segLen++;
+        }
+    }
+    if (segLen == 2 && p[-2] == '.' && p[-1] == '.') return 0;
+    return 1;
+}
+
 void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
     *idxLoad = *idxSave = -1;
+    
     if (argc > 5) {
         fprintf(stderr, "Usage:\n  %s <file>\n  %s -ls <file>\n  %s -l <file> -s <file>\n",
                 argv[0], argv[0], argv[0]);
@@ -145,14 +177,30 @@ void analyze_args(int argc, char **argv, int *idxLoad, int *idxSave) {
             if (*idxLoad != -1 || *idxSave != -1) {
                 fprintf(stderr, "Error: duplicate load/save flags\n"); exit(EXIT_FAILURE);
             }
+            if(!is_safe_path(argv[i+1])){
+                fprintf(stderr, "Error: input file is prohibited\n");
+                exit(EXIT_FAILURE);
+            }
             *idxLoad = *idxSave = i + 1; return;
         }
         if (strcmp(argv[i], "-l") == 0 && (i + 1) < argc) {
             if (*idxLoad != -1) { fprintf(stderr, "Error: duplicate -l flag\n"); exit(EXIT_FAILURE); }
+
+            //check load path safety
+            if(!is_safe_path(argv[i+1])){
+                fprintf(stderr, "Error: load file is prohibited\n");
+                exit(EXIT_FAILURE);
+            }
             *idxLoad = i + 1;
         }
         if (strcmp(argv[i], "-s") == 0 && (i + 1) < argc) {
             if (*idxSave != -1) { fprintf(stderr, "Error: duplicate -s flag\n"); exit(EXIT_FAILURE); }
+
+            //check save path safety
+            if(!is_safe_path(argv[i+1])){
+                fprintf(stderr, "Error: save file is prohibited\n");
+                exit(EXIT_FAILURE);
+            }
             *idxSave = i + 1;
         }
     }
@@ -440,7 +488,7 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     if ((now - stats.lastSnapshotTime) >= 300 && stats.keysModifiedSinceSnapshot >= 100) {
 
         pid_t pid = fork();
-        //son processmanage the snapshot 
+        //son process manage the snapshot 
         if (pid == 0) {
             //close the fds, otherwise they allow listening by son process
             close(sctx.serverFd);
@@ -553,6 +601,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rateLimitTable, con
     close(sctx.epollFd);
     close(sctx.serverFd);
 }
+
 
 int main(int argc, char **argv) {
     stats.startTime         = time(NULL);

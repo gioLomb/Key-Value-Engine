@@ -83,7 +83,7 @@ ClientCtx* client_pool_alloc(void) {
 
     // zero all fields except parentChunk which must be preserved
     memset(ctx->buffer, 0, BUFFER_SIZE);
-    ctx->sock_ev  = (ConnectionEvent){0};
+    ctx->sockEv  = (ConnectionEvent){0};
     ctx->timerEv = (ConnectionEvent){0};
     ctx->next = ctx->prev = NULL;
     
