@@ -55,6 +55,13 @@ int handle_request(Hash_Table* db, char *requestBuffer, char* responseBuffer,int
         snprintf(responseBuffer, BUFFER_SIZE, "Bad Request\n");
         return 400;
     }
+
+    //search for GET method
+    if (strncmp(firstLine, "GET ", 4) != 0) {
+        snprintf(responseBuffer, BUFFER_SIZE, "Method Not Allowed\n");
+        return 405;
+    }
+
     extract_url(firstLine, url,URL_BUFFER_SIZE);
 
     // isolate path component (stop at '?' or end of string)
