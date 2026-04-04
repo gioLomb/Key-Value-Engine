@@ -504,6 +504,7 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
             printf("Snapshot started in child process %d (%lu keys modified)\n", pid, modified);
         } else {
             perror("fork snapshot failed");
+            stats.lastSnapshotTime = now;
         }
     }
 }
