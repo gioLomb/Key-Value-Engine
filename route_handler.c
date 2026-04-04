@@ -249,12 +249,13 @@ static void get_query_param(const char *url, const char *paramName, char *destBu
     while (*ptr && *ptr != '&' && *ptr != ' ' && copied < (maxLen - 1)) {
         //decode hex bytes
         if (*ptr == '%' && isxdigit(ptr[1]) && isxdigit(ptr[2])) {
-            int hi = hex_to_int(ptr[1]);
-            int lo = hex_to_int(ptr[2]);
             
-            //(hi * 16) + lo
-            destBuffer[copied++] = (char)((hi << 4) | lo);
-            ptr += 3; 
+            //(high * 16) + low
+            char decoded = (char)((hex_to_int(ptr[1]) << 4) | hex_to_int(ptr[2]));
+            if (decoded == '\0') { destBuffer[0] = '\0'; return; } //blocks Null-embedded strings
+
+            destBuffer[copied++] = decoded;
+            ptr += 3;
         } else {
             if (*ptr == '+') destBuffer[copied++] = ' ';
             else destBuffer[copied++] = *ptr;
