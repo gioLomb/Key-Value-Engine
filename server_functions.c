@@ -90,7 +90,7 @@ static void check_snapshot(Hash_Table *db, const char *path,ServerCtx sctx);
  * Tracks requests per IP in the rateLimitTable; returns 1 if the request is 
  * within the allowed RATE_LIMIT_RPS, 0 if the limit has been exceeded.
  */
-static int rate_limit_check(Hash_Table *rateLimitTable, const char *ip);
+static int rate_limit_check(Hash_Table **rateLimitTable, const char *ip);
 
 /**
  * Checks if a file path is safe to use.
@@ -359,7 +359,7 @@ static int handle_socket_event(int epollFd, ClientCtx *ctx, Hash_Table *db,
         inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
 
     // check rate limit
-    if (DEBUG_RATE_LIMIT && !rate_limit_check(rateLimitTable, ip)) {
+    if (DEBUG_RATE_LIMIT && !rate_limit_check(&rateLimitTable, ip)) {
         send_response(ctx->sockEv.fd, 429, "Too Many Requests\n", 0);
         close_client(epollFd, ctx, head, activeClients);
         return 0;
@@ -508,33 +508,47 @@ static void check_snapshot(Hash_Table *db, const char *path, ServerCtx sctx) {
     }
 }
 
-static int rate_limit_check(Hash_Table *rateLimitTable, const char *ip) {
+
+static int rate_limit_check(Hash_Table **rateLimitTablePtr, const char *ip) {
     if (!ip || ip[0] == '\0') return 1;
+    Hash_Table *table = *rateLimitTablePtr;
+
+    //check about table max size
+    if (table->size > 10000) {
+        // clean and recreate
+        ht_destroy(table, NULL);
+        table = ht_create(1024, hash_key);
+        *rateLimitTablePtr = table;
+        
+        if (DEBUG_RATE_LIMIT) printf("Rate limit reached\n");
+
+    }
 
     RateEntry entry = {0};
     time_t now = time(NULL);
-    //retrieve or initialize rate limiting data for this IP
-    ht_get(rateLimitTable, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
 
-    //shift the window: if a second has passed, move current count to previous
+    ht_get(table, (void*)ip, strlen(ip) + 1, &entry, sizeof(entry));
+
+    // slide counters
     if (now - entry.windowStartTime >= 1) {
-        entry.countPrev   = entry.countCurr;
-        entry.countCurr   = 0;
+        entry.countPrev = entry.countCurr;
+        entry.countCurr = 0;
         entry.windowStartTime = now;
     }
 
-    //weighted average of previous and current second
-    double elapsed   = difftime(now, entry.windowStartTime);
+    // compute weighted average 
+    double elapsed = difftime(now, entry.windowStartTime);
     double estimated = entry.countPrev * (1.0 - elapsed) + entry.countCurr;
 
+    // block
     if (estimated >= RATE_LIMIT_RPS) {
-        ht_set(rateLimitTable, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+        ht_set(table, (void*)ip, strlen(ip) + 1, &entry, sizeof(entry));
         return 0;
     }
 
-    //save changes
+    // save
     entry.countCurr++;
-    ht_set(rateLimitTable, (void*)ip, strlen(ip)+1, &entry, sizeof(entry));
+    ht_set(table, (void*)ip, strlen(ip) + 1, &entry, sizeof(entry));
     return 1;
 }
 
