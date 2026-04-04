@@ -599,7 +599,16 @@ void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rateLimitTable, con
             }
 
             ClientCtx *ctx = ev->parent;
+            
+            /* closing=1 is set before client_pool_release() to guard against
+            * epoll_wait() returning stale events for the same ClientCtx in one
+            * batch: if a TYPE_TIMER releases ctx and a TYPE_SOCKET follows in the
+            * same loop iteration, the socket event is discarded before touching
+            * any field of the already-freed ctx. */
+            if (ctx->closing) continue; 
+
             if (ev->type == TYPE_TIMER) {
+                ctx->closing = 1;
                 handle_timerEvent(sctx.epollFd, ctx, &head, &activeClients);
                 continue;
             }

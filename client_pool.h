@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include <sys/epoll.h>
+#include <stdbool.h>
 
 #define CHUNK_SIZE 64 
 
@@ -52,6 +53,7 @@ typedef struct ClientCtx {
     struct ClientCtx *next;
     struct ClientCtx *prev;
     struct MemoryChunk *parentChunk;
+    bool closing;
     char buffer[BUFFER_SIZE]; 
 } ClientCtx;
 

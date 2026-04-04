@@ -24,7 +24,7 @@ typedef struct MemoryChunk {
 static MemoryChunk *chunksHead = NULL;
 
 /*
- * create_chunk - allocates and initialises a new MemoryChunk.
+ * Allocates and initialises a new MemoryChunk.
  *
  * Uses calloc() so all fields start zeroed. Then walks the clients array to
  * build the local free list: each slot's next pointer is wired to the
@@ -83,6 +83,7 @@ ClientCtx* client_pool_alloc(void) {
 
     // zero all fields except parentChunk which must be preserved
     memset(ctx->buffer, 0, BUFFER_SIZE);
+    ctx->closing = 0;
     ctx->sockEv  = (ConnectionEvent){0};
     ctx->timerEv = (ConnectionEvent){0};
     ctx->next = ctx->prev = NULL;

@@ -9,3 +9,4 @@ benchmark_report.docx
 temp/
 *.bin
 *.lua
+*.py
