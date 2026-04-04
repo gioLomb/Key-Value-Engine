@@ -227,6 +227,13 @@ static inline void save_data_on_file(Entry *entryToSave, FILE *f) {
 }
 
 int ht_load(Hash_Table *table, const char *path) {
+    if(!table || !path) return 0;
+
+    if (table->size > 0) {
+        fprintf(stderr, "ht_load: table is not empty, aborting load\n");
+        return 0;
+    }
+    
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
 
