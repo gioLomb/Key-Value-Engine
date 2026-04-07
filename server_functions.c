@@ -446,39 +446,46 @@ static ServerCtx start_server(int port) {
 
 void send_response(int socketFd, int statusCode, char *responseMsg, int keepAlive) {
     char fullResponse[256 + RESPONSE_BUFFER_SIZE];
-    char *statusMsg;
+    const char* extraHeader = "";
+    char *statusMsg = "OK";
+    size_t bodyLen;
+
+    // gzip status code
+    if (statusCode >= 10000) {
+        bodyLen = statusCode - 10000;
+        statusCode = 200;
+        extraHeader = "Content-Encoding: gzip\r\n";
+    } else {
+        bodyLen = strlen(responseMsg);
+    }
 
     switch (statusCode) {
-        case 200: statusMsg = "OK";          break;
+        case 200: statusMsg = "OK"; break;
         case 400: statusMsg = "Bad Request"; break;
-        case 404: statusMsg = "Not Found";   break;
-        case 429: statusMsg = "Too Many Requests"; break;
+        case 404: statusMsg = "Not Found"; break;
         default:  statusMsg = "Internal Server Error"; break;
     }
 
-    int wlen = snprintf(fullResponse, sizeof(fullResponse),
-        "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: %s\r\n\r\n%s",
+    // make header
+    int headerLen = snprintf(fullResponse, sizeof(fullResponse),
+        "HTTP/1.1 %d %s\r\n"
+        "Content-Type: %s\r\n"
+        "%s"
+        "Content-Length: %zu\r\n"
+        "Connection: %s\r\n\r\n",
         statusCode, statusMsg,
-        (statusCode == 200 && responseMsg[0] == '{') ? "application/json" : "text/plain",
-        strlen(responseMsg),
-        keepAlive ? "keep-alive\r\nKeep-Alive: timeout=5" : "close",
-        responseMsg);
+        (statusCode == 200 && extraHeader[0] == '\0' && responseMsg[0] == '{') ? "application/json" : "text/html",
+        extraHeader, bodyLen,
+        keepAlive ? "keep-alive" : "close");
 
-    if (wlen <= 0 || wlen >= (int)sizeof(fullResponse)) {
-        fprintf(stderr, "send_response: snprintf overflow\n");
-        return;
-    }
-
-    // ensure the entire response is sent
+    // send header and then message
+    write(socketFd, fullResponse, headerLen);
+    
     size_t total = 0;
-    while (total < (size_t)wlen) {
-        ssize_t n = write(socketFd, fullResponse + total, wlen - total);
-        if (n < 0) {
-            if (errno == EINTR) continue;   
-            if (errno != EPIPE && errno != ECONNRESET) perror("write failed");
-            return;                         
-        }
-        total += (size_t)n;
+    while (total < bodyLen) {
+        ssize_t n = write(socketFd, responseMsg + total, bodyLen - total);
+        if (n <= 0) break; 
+        total += n;
     }
 }
 
@@ -519,6 +526,7 @@ static int rate_limit_check(Hash_Table **rateLimitTablePtr, const char *ip) {
         // clean and recreate
         ht_destroy(table, NULL);
         table = ht_create(1024, hash_key);
+        if (!table) return 1;
         *rateLimitTablePtr = table;
         
         if (DEBUG_RATE_LIMIT) printf("Rate limit reached\n");
@@ -599,7 +607,7 @@ void server_loop(ServerCtx sctx, Hash_Table *db, Hash_Table *rateLimitTable, con
             }
 
             ClientCtx *ctx = ev->parent;
-            
+
             /* closing=1 is set before client_pool_release() to guard against
             * epoll_wait() returning stale events for the same ClientCtx in one
             * batch: if a TYPE_TIMER releases ctx and a TYPE_SOCKET follows in the

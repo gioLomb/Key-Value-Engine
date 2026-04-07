@@ -19,7 +19,8 @@
 #include <netinet/tcp.h>
 #include <pthread.h>
 #include <arpa/inet.h>
-
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 /* MACROS */
 #define KEEPALIVE_TIMEOUT    5

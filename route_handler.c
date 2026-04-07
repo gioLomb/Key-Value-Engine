@@ -26,9 +26,11 @@ static int handler_get(Hash_Table *table, const char *url, char *responseBuffer)
 static int handler_set(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_delete(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_stats(Hash_Table *table, const char *url, char *responseBuffer);
+static int handler_home(Hash_Table *table, const char *url, char *responseBuffer);
 
 /* ROUTES */
 static Route routes[]={
+    {"/",handler_home},
     {"/get",handler_get},
     {"/set",handler_set},
     {"/delete",handler_delete},
@@ -110,6 +112,43 @@ static int value_escaping(const char *src, char *dest, size_t destSize) {
     }
     dest[i] = '\0';
     return 1;
+}
+
+static int handler_home(Hash_Table *table, const char *url, char *responseBuffer){
+    (void)url;(void)table;
+    //static variables for index.html mapping
+    static char *mapped_data = NULL;
+    static size_t mapped_size = 0;
+    static int init_failed = 0;
+
+    if (mapped_data == NULL && !init_failed) {
+        int fd = open("index.html.gz", O_RDONLY);
+        if (fd != -1) {
+            struct stat st;
+            if (fstat(fd, &st) == 0) {
+                mapped_size = st.st_size;
+                mapped_data = mmap(NULL, mapped_size, PROT_READ, MAP_PRIVATE, fd, 0);
+            }
+            close(fd);
+        }
+
+        if (mapped_data == MAP_FAILED || mapped_data == NULL) {
+            init_failed = 1;
+            fprintf(stderr, "Error: logical mapping of index.html failed\n");
+        }
+    }
+
+    if (init_failed) {
+        snprintf(responseBuffer, RESPONSE_BUFFER_SIZE, "500 Internal Server Error - Interface Missing\n");
+        return 500;
+    }
+
+    //write file content
+    memcpy(responseBuffer, mapped_data, mapped_size);
+    responseBuffer[mapped_size] = '\0';
+
+    //special status code for gzip encoding
+    return 10000 + (int)mapped_size;
 }
 
 static int handler_stats(Hash_Table *table, const char *url, char *responseBuffer) {

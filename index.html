@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KV Store</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, sans-serif;
+    background: #f5f5f3;
+    color: #1a1a18;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 3rem 1rem;
+  }
+
+  .wrap { width: 100%; max-width: 520px; }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+    color: #1a1a18;
+  }
+
+  .tabs {
+    display: flex;
+    border: 0.5px solid #c8c8c0;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+  }
+  .tab {
+    flex: 1;
+    padding: 9px;
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    background: transparent;
+    color: #6b6b66;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .tab.active { background: #ebebea; color: #1a1a18; }
+  .tab:not(:last-child) { border-right: 0.5px solid #c8c8c0; }
+
+  .card {
+    background: #ffffff;
+    border: 0.5px solid #ddddd8;
+    border-radius: 12px;
+    padding: 1.25rem;
+    display: none;
+  }
+  .card.active { display: block; }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: #6b6b66;
+    margin-bottom: 5px;
+    margin-top: 12px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 14px;
+    background: #f5f5f3;
+    border: 0.5px solid #c8c8c0;
+    border-radius: 8px;
+    color: #1a1a18;
+    outline: none;
+    transition: border-color .15s;
+  }
+  input[type="text"]:focus { border-color: #888880; }
+
+  .btn {
+    margin-top: 14px;
+    width: 100%;
+    padding: 9px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    transition: background .15s, transform .1s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-get  { border: 0.5px solid #185FA5; color: #185FA5; }
+  .btn-get:hover  { background: #e6f1fb; }
+  .btn-set  { border: 0.5px solid #0F6E56; color: #0F6E56; }
+  .btn-set:hover  { background: #e1f5ee; }
+  .btn-del  { border: 0.5px solid #A32D2D; color: #A32D2D; }
+  .btn-del:hover  { background: #fcebeb; }
+
+  .result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: monospace;
+    line-height: 1.5;
+    word-break: break-all;
+    display: none;
+  }
+  .result.ok   { background: #eaf3de; color: #27500a; border: 0.5px solid #c0dd97; }
+  .result.err  { background: #fcebeb; color: #791f1f; border: 0.5px solid #f7c1c1; }
+  .result.info { background: #e6f1fb; color: #0c447c; border: 0.5px solid #b5d4f4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>KV Store</h1>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('get', this)">GET</button>
+    <button class="tab" onclick="switchTab('set', this)">SET</button>
+    <button class="tab" onclick="switchTab('delete', this)">DELETE</button>
+  </div>
+
+  <div id="pane-get" class="card active">
+    <label>Key</label>
+    <input type="text" id="get-key" placeholder="es. username" />
+    <button class="btn btn-get" onclick="doGet()">Get value</button>
+    <div class="result" id="get-result"></div>
+  </div>
+
+  <div id="pane-set" class="card">
+    <label>Key</label>
+    <input type="text" id="set-key" placeholder="es. username" />
+    <label>Value</label>
+    <input type="text" id="set-val" placeholder="es. mario" />
+    <button class="btn btn-set" onclick="doSet()">Save</button>
+    <div class="result" id="set-result"></div>
+  </div>
+
+  <div id="pane-delete" class="card">
+    <label>Key</label>
+    <input type="text" id="del-key" placeholder="es. username" />
+    <button class="btn btn-del" onclick="doDelete()">Delete</button>
+    <div class="result" id="del-result"></div>
+  </div>
+</div>
+
+<script>
+  function switchTab(name, el) {
+    ['get', 'set', 'delete'].forEach(t => {
+      document.getElementById('pane-' + t).classList.toggle('active', t === name);
+    });
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function showResult(id, text, type) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'result ' + type;
+    el.style.display = 'block';
+  }
+
+  async function doGet() {
+    const key = document.getElementById('get-key').value.trim();
+    if (!key) { showResult('get-result', 'enter a key', 'err'); return; }
+    try {
+      const r = await fetch('/get?key=' + encodeURIComponent(key));
+      const text = await r.text();
+      if (r.ok) {
+        const obj = JSON.parse(text);
+        showResult('get-result', obj.value, 'ok');
+      } else {
+        showResult('get-result', text.trim(), 'err');
+      }
+    } catch (e) { showResult('get-result', 'Network error: ' + e.message, 'err'); }
+  }
+
+  async function doSet() {
+    const key = document.getElementById('set-key').value.trim();
+    const val = document.getElementById('set-val').value.trim();
+    if (!key || !val) { showResult('set-result', 'Enter key and value', 'err'); return; }
+    try {
+      const r = await fetch('/set?key=' + encodeURIComponent(key) + '&val=' + encodeURIComponent(val));
+      const text = await r.text();
+      showResult('set-result', text.trim(), r.ok ? 'ok' : 'err');
+    } catch (e) { showResult('set-result', 'Network error: ' + e.message, 'err'); }
+  }
+
+  async function doDelete() {
+    const key = document.getElementById('del-key').value.trim();
+    if (!key) { showResult('del-result', 'Enter a key.', 'err'); return; }
+    try {
+      const r = await fetch('/delete?key=' + encodeURIComponent(key));
+      const text = await r.text();
+      showResult('del-result', text.trim(), r.ok ? 'info' : 'err');
+    } catch (e) { showResult('del-result', 'Network error: ' + e.message, 'err'); }
+  }
+
+  document.querySelectorAll('input[type="text"]').forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') inp.closest('.card').querySelector('.btn').click();
+    });
+  });
+</script>
+</body>
+</html>
