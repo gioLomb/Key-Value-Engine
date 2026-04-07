@@ -450,12 +450,13 @@ void send_response(int socketFd, int statusCode, char *responseMsg, int keepAliv
     char *statusMsg = "OK";
     size_t bodyLen;
 
-    // gzip status code
+    // gzip special status code
     if (statusCode >= 10000) {
-        bodyLen = statusCode - 10000;
+        bodyLen = statusCode - 10000; //unpack file size
         statusCode = 200;
         extraHeader = "Content-Encoding: gzip\r\n";
     } else {
+        //http standard status code
         bodyLen = strlen(responseMsg);
     }
 

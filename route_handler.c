@@ -26,6 +26,12 @@ static int handler_get(Hash_Table *table, const char *url, char *responseBuffer)
 static int handler_set(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_delete(Hash_Table *table, const char *url, char *responseBuffer);
 static int handler_stats(Hash_Table *table, const char *url, char *responseBuffer);
+
+/**
+ * Serves the compressed index.html.gz using mmap.
+ * Returns (10000 + file_size) to signal GZIP encoding and binary safe length 
+ * to the response sender, or 500 on failure.
+ */
 static int handler_home(Hash_Table *table, const char *url, char *responseBuffer);
 
 /* ROUTES */
