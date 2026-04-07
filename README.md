@@ -50,8 +50,10 @@ A dedicated `timerfd` registered in the same epoll instance fires every 60 secon
 | `config.h` | Global constants and `#include` aggregation |
 | `hash_table.c/h` | Thread-safe generic hash table with chaining, auto-resize, and binary persistence |
 | `client_pool.c/h` | Slab allocator for `ClientCtx` objects; fixed-size chunks, O(1) alloc/release |
-| `route_handler.c/h` | HTTP request parsing and dispatch to `/get`, `/set`, `/delete`, `/stats` |
+| `route_handler.c/h` | HTTP request parsing and dispatch to `/get`, `/set`, `/delete`, `/stats`, `/` |
 | `server_functions.c/h` | epoll event loop, connection lifecycle, signal handling, snapshot scheduling, `main()` |
+| `index.html` | Web UI source — tab-based form for GET / SET / DELETE operations |
+| `index.html.gz` | Gzip-compressed build of `index.html`; served directly by `handler_home` via `mmap` |
 
 ### Hash Table
 
@@ -72,17 +74,32 @@ A dedicated `timerfd` registered in the same epoll instance fires every 60 secon
 
 ### HTTP Interface
 
-Five routes are supported via query parameters:
+Six routes are supported:
 
 | Route | Parameters | Success | Error |
 |---|---|---|---|
+| `/` | — | `200 text/html` (gzip-encoded web UI) | `500` if `index.html.gz` is missing |
 | `/get` | `key=<k>` | `200 {"value":"..."}` | `404` key not found / `400` missing key |
 | `/set` | `key=<k>&val=<v>` | `200 stored` | `400` bad params / `500` internal error |
 | `/delete` | `key=<k>` | `200 value deleted` | `404` key not found / `400` missing key |
 | `/stats` | — | `200 {"uptime_seconds":...,"totalRequests":...,"totalConnections":...,"total_keys":...}` | — |
 | Any other path | — | — | `404` route does not exist |
 
+`send_response()` selects `Content-Type` automatically: `application/json` when the body starts with `{`, `text/html; charset=utf-8` when it starts with `<!DOCTYPE`, and `text/plain` otherwise. When `handler_home` returns the special code `10000 + file_size`, `send_response()` adds `Content-Encoding: gzip` and sends the raw compressed bytes directly, bypassing the normal string formatting path.
+
 All keys and values are sanitised: percent-encoded sequences are decoded and every character must be printable before the request reaches the hash table. Values returned by `/get` are JSON-escaped before insertion into the response body to prevent injection.
+
+### Web UI
+
+Opening `http://localhost:8080/` in a browser serves a minimal single-page interface. Three tabs — **GET**, **SET**, and **DELETE** — each expose an input form that calls the corresponding API route via `fetch` and displays the server response inline, colour-coded by outcome (green for success, red for error, blue for informational). Pressing Enter submits the active form.
+
+The UI is served as a pre-compressed `index.html.gz` file loaded once at startup via `mmap` and held in memory for the lifetime of the process. Browsers that send `Accept-Encoding: gzip` (all modern browsers) decompress it transparently; no server-side per-request compression is performed.
+
+To rebuild the compressed asset after editing `index.html`:
+
+```bash
+gzip -k -9 index.html
+```
 
 ### Keepalive & Timers
 
@@ -117,6 +134,14 @@ gcc -O2 -Wall -Wextra -o kvengine \
     server_functions.c hash_table.c route_handler.c client_pool.c \
     -lpthread
 ```
+
+After compiling, compress the web UI before starting the server:
+
+```bash
+gzip -k -9 index.html        # produces index.html.gz
+```
+
+The `-k` flag keeps the original `index.html` in place. The server reads only `index.html.gz` at runtime; the uncompressed file is not required.
 
 ---
 
